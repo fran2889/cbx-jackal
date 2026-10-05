@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Forge Report — cbz-jxl</title>
+<style>
+  :root{--ink:#1c1a17;--mut:#6b6459;--line:#ded7ca;--paper:#faf7f0;--card:#fffdf8;--seal:#8f2f2f;--ok:#2f6b3f;--bad:#8f2f2f}
+  *{box-sizing:border-box}
+  body{margin:0;padding:3rem 1.25rem 5rem;background:var(--paper);color:var(--ink);
+    font:16px/1.65 ui-serif,Georgia,"Iowan Old Style",serif}
+  main{max-width:52rem;margin:0 auto}
+  h1{font-size:2.1rem;line-height:1.15;margin:0 0 .35rem;letter-spacing:-.02em}
+  .sub{color:var(--mut);font-size:.95rem;margin:0 0 2.25rem;font-family:ui-sans-serif,system-ui,sans-serif}
+  .seal{float:right;margin:0 0 1.5rem 1.5rem;width:150px;height:150px}
+  @media(max-width:560px){.seal{float:none;margin:0 auto 1.5rem;display:block}}
+  h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.14em;color:var(--mut);
+    font-family:ui-sans-serif,system-ui,sans-serif;font-weight:700;
+    margin:2.75rem 0 .85rem;padding-bottom:.4rem;border-bottom:1px solid var(--line)}
+  ul{margin:0;padding-left:1.15rem}li{margin:.42rem 0}
+  code{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#f1ece1;
+    padding:.12em .4em;border-radius:3px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:9px;
+    padding:1.15rem 1.35rem;margin:.85rem 0}
+  .lead{font-size:1.06rem}
+  table{width:100%;border-collapse:collapse;margin:.6rem 0;font-size:.9rem;
+    font-family:ui-sans-serif,system-ui,sans-serif}
+  th,td{text-align:left;padding:.44rem .5rem;border-bottom:1px solid var(--line)}
+  th{font-size:.7rem;text-transform:uppercase;letter-spacing:.09em;color:var(--mut)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .yes{color:var(--ok);font-weight:600}.no{color:var(--bad);font-weight:600}
+  blockquote{margin:.85rem 0;padding:.55rem 0 .55rem 1rem;border-left:3px solid var(--line);
+    color:var(--mut);font-style:italic;font-size:.95rem}
+  .who{font-weight:600;color:var(--ink);font-style:normal}
+  .retract{background:#fdf6f4;border-left:3px solid var(--seal);padding:.8rem 1rem;
+    border-radius:0 6px 6px 0;margin:1rem 0}
+  .retract strong{color:var(--seal)}
+  .open{background:#fdfaf1;border-left:3px solid #b8862f;padding:.8rem 1rem;
+    border-radius:0 6px 6px 0;margin:.6rem 0}
+  .cast{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.3rem}
+  .chip{background:#f1ece1;border:1px solid var(--line);border-radius:99px;
+    padding:.2rem .68rem;font-size:.8rem;font-family:ui-sans-serif,system-ui,sans-serif}
+  footer{margin-top:3.5rem;padding-top:1.1rem;border-top:1px solid var(--line);
+    color:var(--mut);font-size:.82rem;font-family:ui-sans-serif,system-ui,sans-serif}
+</style>
+</head>
+<body><main>
+
+<svg class="seal" viewBox="0 0 200 200" role="img" aria-label="HARDENED">
+  <defs>
+    <radialGradient id="wax" cx="38%" cy="32%" r="78%">
+      <stop offset="0%" stop-color="#b44747"/><stop offset="70%" stop-color="#8f2f2f"/>
+      <stop offset="100%" stop-color="#6d2020"/>
+    </radialGradient>
+  </defs>
+  <circle cx="100" cy="100" r="93" fill="url(#wax)"/>
+  <circle cx="100" cy="100" r="93" fill="none" stroke="#5d1a1a" stroke-width="2.5" opacity=".55"/>
+  <circle cx="100" cy="100" r="81" fill="none" stroke="#f0c9c9" stroke-width="1.4" opacity=".42"/>
+  <circle cx="100" cy="100" r="74" fill="none" stroke="#f0c9c9" stroke-width=".8" opacity=".28"
+          stroke-dasharray="3 4"/>
+  <g fill="#fbeaea" opacity=".93" font-family="ui-sans-serif,system-ui,sans-serif" text-anchor="middle">
+    <text x="100" y="52" font-size="10" letter-spacing="3.4">FORGED</text>
+    <text x="100" y="112" font-size="27" font-weight="800" letter-spacing="1.4">HARDENED</text>
+    <text x="100" y="136" font-size="9.5" letter-spacing="2.6" opacity=".8">CBZ-JXL</text>
+  </g>
+  <g stroke="#f0c9c9" stroke-width="2" opacity=".38" stroke-linecap="round">
+    <path d="M42 100h-9M167 100h-9M100 42v-9M100 167v-9"/>
+  </g>
+</svg>
+
+<h1>cbz-jxl</h1>
+<p class="sub">Forge report · initiative <code>cbx-jackal</code> · all claims below were measured against libjxl 0.11.1, not recalled</p>
+
+<p class="lead"><strong>HARDENED.</strong> A CLI that turns a comic archive's JPEG pages into JXL pages.
+One external tool, no Python imaging libraries, order-preserving, atomically written.</p>
+
+<h2>What the idea actually is</h2>
+<div class="card">
+<p><code>cbx-jackal book.cbz</code> → <code>book.jxl.cbz</code>. Every JPEG page is re-encoded to JXL;
+everything else is copied through byte-for-byte. Python entry point, <code>cjxl</code> as the only
+external tool, verified at startup.</p>
+<p>The strongest property is one the original pitch under-sold: <strong>lossless output is reversible.</strong>
+<code>cjxl -q 100</code> embeds JPEG bitstream reconstruction data, so <code>djxl</code> hands back the
+<em>byte-identical</em> source JPEG — verified by matching SHA-256. Lossless is therefore simultaneously
+the safest, the reversible, and on this content among the smallest options.</p>
+</div>
+
+<h2>Locked decisions</h2>
+<ul>
+  <li><strong>Lossless by default.</strong> Bare invocation never destroys quality.</li>
+  <li><strong>Reversibility is exclusive to lossless.</strong> <code>-q N&lt;100</code> drops the
+      reconstruction data and adds a generation of loss permanently.</li>
+  <li><strong>One rule: convert what <code>cjxl</code> can, copy verbatim everything else.</strong>
+      A corrupt JPEG is not a special case, just a failed conversion — it gets copied through,
+      same as <code>ComicInfo.xml</code> or a <code>readme.txt</code>.</li>
+  <li><strong>Order = source ZIP stored order, verbatim.</strong> No sorting, no renumbering. Readers own
+      the sort, so we never silently reorder a book. This is also why <code>ComicInfo.xml</code> needs no
+      rewriting, and why a skipped page shifts nothing.</li>
+  <li><strong><code>&lt;name&gt;.jxl.cbz</code> beside the input.</strong> Never in-place.</li>
+  <li><strong>Exit non-zero only if a JPEG failed to convert.</strong> Non-JPEG pass-throughs are normal
+      and must not make a healthy run look broken.</li>
+  <li><strong>Atomic output.</strong> Temp file in the destination directory, then rename. A failed run
+      leaves no output at all, never a partial book. <code>--strict</code> aborts on first failure;
+      <code>--dry-run</code> writes nothing.</li>
+  <li>ZIP entries STORED, not deflated. No <code>--effort</code> (7 measured free). No parallelism.</li>
+</ul>
+
+<h2>Measured, not assumed</h2>
+<table>
+<thead><tr><th>Mode</th><th class="num">Bytes</th><th class="num">vs source</th><th>Source JPEG recovered byte-identically?</th></tr></thead>
+<tbody>
+<tr><td><code>source page.jpg</code></td><td class="num">22,065</td><td class="num">—</td><td>—</td></tr>
+<tr><td><strong>lossless</strong> <code>-q 100</code></td><td class="num">11,463</td><td class="num">48.0% smaller</td><td class="yes">yes — exact original</td></tr>
+<tr><td>lossy <code>-q 95</code></td><td class="num">14,988</td><td class="num">32.1% smaller</td><td class="no">no — loss added</td></tr>
+<tr><td>lossy <code>-q 90</code></td><td class="num">11,995</td><td class="num">45.6% smaller</td><td class="no">no — loss added</td></tr>
+<tr><td>lossy <code>-q 80</code></td><td class="num">9,570</td><td class="num">56.6% smaller</td><td class="no">no — loss added</td></tr>
+</tbody>
+</table>
+<p class="sub" style="margin:.4rem 0 0">Encode cost at A4/300dpi: 0.08s per flat comic page, 0.16s per
+detail-heavy page — a 200-page book is 16–32s serial, which is why page-level parallelism was dropped.</p>
+
+<div class="retract">
+<p><strong>I was wrong, and the pressure-testing is what caught it.</strong></p>
+<p>I first dismissed "the original JPEG can be reconstructed" as information-theoretically impossible, and
+backed it with a sound proof: two JPEGs differing only by an inserted 22-byte comment marker decode to
+<em>identical pixels</em>, so pixels cannot determine the original bytes. The proof was correct and the
+conclusion was wrong — the JXL is not pixels-only. It carries extra reconstruction data, and
+<code>djxl</code> does reproduce the source exactly. The user's original claim held.</p>
+</div>
+
+<h2>Rejected, with reasons</h2>
+<ul>
+  <li><strong>Bundling libjxl into the binary</strong> — on Linux, two copies of libjxl in one filesystem
+      fight over global JPEG XL decoder handler registration, and the wrong one can win silently.</li>
+  <li><strong>A separate <code>--lossless</code> flag</strong> — <code>-q 100</code> already <em>is</em>
+      lossless; two spellings of one concept.</li>
+  <li><strong>Sidecar <code>.jxl</code> files beside retained JPEGs</strong> — superseded once JXL-only
+      proved reversible.</li>
+  <li><strong>Page-level parallelism</strong> — nothing to win at 0.08s per page.</li>
+</ul>
+
+<h2>Weak points that survived scrutiny</h2>
+<div class="open">
+<p><strong>DPI is not stored.</strong> <code>jxlinfo</code> reports no density, and 150/300/600 dpi all
+come back as 72/undefined. Pixel dimensions survive intact (2480×3508). Comic readers size pages by
+physical DPI, so rendered page size may come out wrong. This needs checking against a JXL-aware reader
+before the tool claims to be done.</p>
+<p><strong>An implementation trap already found.</strong> <code>cjxl -q 90</code> on JPEG input fails with
+<code>Must not set quality below 100 in combination with --lossless_jpeg=1, which is set by default.</code>
+Every lossy run must pass <code>--lossless_jpeg=0</code> as well. Undiscovered, this would have broken
+every single lossy invocation.</p>
+<p><strong>A verification path is now cheap.</strong> Because lossless output is reversible, a
+<code>--verify</code> mode comparing <code>djxl</code> round-trips against the source would be airtight
+rather than approximate. Worth deciding whether it ships.</p>
+</div>
+
+<h2>Who pressure-tested this</h2>
+<div class="cast">
+<span class="chip">🎯 Yui — The Craftsman</span>
+<span class="chip">🚢 Dana — The Pragmatist</span>
+<span class="chip">💻 Amelia — Senior Software Engineer</span>
+<span class="chip">🌶️ Boundary — Edge-Case Hunter</span>
+<span class="chip">🔒 Vex — Security Engineer</span>
+<span class="chip">Marguerite Okafor — digital preservation lead</span>
+<span class="chip">Ravi Bhatt — scanner operator &amp; colourist</span>
+<span class="chip">Yusuf Demirci — self-hosted comic library maintainer</span>
+<span class="chip">Ines Duarte — distro package maintainer</span>
+<span class="chip">Nadia Farouk — batch conversion ops</span>
+</div>
+<blockquote style="margin-top:1rem"><span class="who">Marguerite Okafor</span> — "I would not pick JXL as a
+retention format; decoder support is thin, and thin support is what you don't want when deciding what
+survives fifteen years." Her objection survives: the case for this tool is per-user size and reversibility,
+<em>not</em> long-term preservation.</blockquote>
+<blockquote><span class="who">Yusuf Demirci</span> — "Every reader enumerates pages by filename sort, so
+your rename rule is the highest-risk line in the whole tool." This is why order is preserved verbatim and
+nothing is ever renumbered.</blockquote>
+
+<footer>
+Distilled from 24 recorded decisions, assumptions, cracks and retractions in
+<code>forge-cbz-jxl/.memlog.md</code>. Ready to hand to <code>bmad-spec</code>.
+</footer>
+
+</main></body></html>
