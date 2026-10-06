@@ -1,0 +1,232 @@
+# cbx-jackal
+
+Transcode a CBZ comic archive's JPEG pages to JPEG XL — **losslessly, and with
+the original JPEG still byte-for-byte recoverable** — while preserving entry
+order and passing through everything else untouched.
+
+```
+$ cbx-jackal book.cbz
+book.cbz -> book.jxl.cbz
+mode: lossless (JPEG bytes recoverable with djxl)
+199/200 converted, 1 passed through, 0 not converted
+```
+
+Measured on real scanned pages, JPEG pages shrink **19–48%** with zero quality
+loss, and `djxl` reproduces the source file exactly:
+
+```
+$ djxl page001.jxl recovered.jpg
+JPEG XL decoder v0.11.1
+Reconstructed to JPEG.
+$ sha256sum page001.jpg recovered.jpg
+505661c8...  page001.jpg
+505661c8...  recovered.jpg
+```
+
+## Why this is worth doing
+
+Every tool available for shrinking a comic archive either re-encodes lossily or
+leaves the bytes alone. JPEG XL's *lossless transcoding* mode is the first
+generation of encoders that gives you smaller **and** lossless **and**
+reversible at the same time. That combination is what makes re-encoding worth
+doing at all — and it is what nothing exposed as a safe, order-preserving,
+one-command operation until now.
+
+Two properties do the work:
+
+- **Lossless by default, with no flag.** libjxl defaults to lossless-transcoding
+  for JPEG input, so a bare `cjxl in.jpg out.jxl` is already reversible.
+- **Reversibility rides in the container.** libjxl embeds *JPEG bitstream
+  reconstruction data*, so `djxl` recovers the original file. This is not the
+  same as lossless pixels: JPEG cannot be restored from decoded pixels alone —
+  two JPEGs differing only by an inserted 22-byte comment marker decode to
+  identical pixels. Only the lossless mode carries the data needed to undo that,
+  and only the lossless mode keeps it.
+
+## Installing cjxl
+
+`cjxl` is the single external dependency. It is **never bundled**: two libjxl
+copies on one Linux host fight over global decoder handler registration, and the
+wrong one can win silently.
+
+### Linux
+
+Your distribution's `libjxl` tools package provides `cjxl`:
+
+```bash
+# Debian, Ubuntu
+sudo apt install libjxl-tools
+
+# Fedora
+sudo dnf install libjxl-tools
+
+# Arch
+sudo pacman -S libjxl-tools
+```
+
+### macOS
+
+```bash
+brew install libjxl
+```
+
+Then put Homebrew's `bin` on your `PATH` if it is not already:
+`export PATH="$(brew --prefix)/bin:$PATH"`.
+
+### Windows
+
+Download a release build from the
+[libjxl releases page](https://github.com/libjxl/libjxl/releases) and put the
+extracted `cjxl.exe`, `djxl.exe` and `jxlinfo.exe` on your `PATH`. Alternatively
+use whichever package manager you already have — scoop, winget, chocolatey — if
+it ships libjxl under a name you can confirm with `cjxl --version` afterwards.
+
+### Verify
+
+```bash
+cjxl --version   # JPEG XL encoder v0.11.1
+djxl --version
+```
+
+cbx-jackal checks for `cjxl` **before opening any archive**, so a missing
+dependency is reported up front rather than discovered 150 pages into a run:
+
+```
+$ cbx-jackal book.cbz
+cbx-jackal: cjxl was not found on PATH.
+...
+```
+
+## Install
+
+Python 3.9 or newer. No runtime dependencies at all — container handling is the
+standard library only, with no Python imaging libraries.
+
+```bash
+pip install .
+```
+
+Or run it without installing:
+
+```bash
+python3 -m cbx_jackal.cli book.cbz
+```
+
+## Usage
+
+```
+cbx-jackal CBZ [CBZ ...] [--quality N] [--strict] [--dry-run] [--force]
+```
+
+| Flag | Meaning |
+|---|---|
+| `--quality N` | Encode lossy at quality 1–100 instead of losslessly. Surrenders byte-for-byte JPEG recovery. 100 and above is lossless. |
+| `--strict` | Write nothing at all if any page fails to convert, instead of copying the failed page through and completing the archive. |
+| `--dry-run` | Report the plan and the real size figures without writing anything. |
+| `--force` | Overwrite an existing `<name>.jxl.cbz`. |
+
+Output is always a **new file** `<input>.jxl.cbz` beside the input. Never
+in-place, never without `--force`. The input archive is never modified.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Every JPEG page converted. Pass-through entries never affect this. |
+| `1` | At least one JPEG page failed to convert, or an archive was unreadable. |
+| `2` | Usage error, missing `cjxl`, or the output already exists without `--force`. |
+
+## What happens to each entry
+
+Every entry gets exactly one outcome, in the source archive's **stored order**.
+Nothing is sorted, renumbered, or repaired.
+
+| Entry | Action | Output name |
+|---|---|---|
+| `.jpg` / `.jpeg`, any case, converts cleanly | transcode | `<stem>.jxl` |
+| `.jpg` / `.jpeg` that `cjxl` rejects | copied verbatim, **not dropped** | **original name kept** |
+| Extension says `.jpg`, content is another image format | transcode (`cjxl` sniffs content) | `<stem>.jxl` |
+| Already `.jxl` | copied verbatim, **never re-encoded** | unchanged |
+| `ComicInfo.xml`, `readme.txt`, any non-image | copied verbatim | unchanged |
+| `__MACOSX/` and resource-fork junk | copied verbatim | unchanged |
+| Nested folders | copied verbatim, structure preserved | unchanged |
+| Anything unreadable from the ZIP | abort the run, leave no output | — |
+
+Three reporting classes, because conflating the second and third would make a
+healthy run look broken:
+
+| Class | Meaning | Affects exit code |
+|---|---|---|
+| converted | JPEG page successfully transcoded | no |
+| passed through | non-JPEG entry, or one deliberately not transcoded | no |
+| **not converted** | a JPEG entry left as-is because `cjxl` failed | **yes** |
+
+```
+199/200 converted, 1 passed through, 1 not converted
+page014.jpg: Error while decoding the JPEG image. It may be corrupt (e.g. truncated) ...
+```
+
+### Design decisions worth stating
+
+- **A failed page leaves a hole, never a misnumbering.** Because nothing is
+  renumbered, a page that fails and is copied through stays at its original index
+  under its original name. The book gets a visible hole instead of a book whose
+  page 15 is suddenly the old page 16.
+- **An existing `.jxl` is never re-encoded.** Round-tripping it through the
+  transcoder strips the JPEG bitstream reconstruction data — the one way to
+  silently destroy reversibility.
+- **`ComicInfo.xml` is never rewritten.** The entry count never changes, so
+  `<Pages Count>` stays correct untouched.
+- **Everything is written `ZIP_STORED`.** JXL is already entropy-coded, so deflate
+  measured under 1% gain while costing real CPU on every page.
+- **Output is atomic.** Built to a temp file in the destination directory,
+  `fsync`'d, then `os.replace`d. A failed run leaves no output file, never a
+  partial one.
+
+## The one trap worth knowing about
+
+libjxl sets `lossless_jpeg=1` by default for JPEG input, so passing only a
+quality flag fails outright:
+
+```bash
+cjxl in.jpg out.jxl                          # lossless, reversible
+cjxl -q 90            in.jpg out.jxl         # exit 1, no output
+cjxl -q 90 --lossless_jpeg=0 in.jpg out.jxl  # lossy, irreversible
+```
+
+```
+Must not set quality below 100 in combination with --lossless_jpeg=1,
+which is set by default.
+```
+
+Every lossy invocation must pass `--lossless_jpeg=0` as well. cbx-jackal does
+this for you, which is why `--quality 90` works at all.
+
+## Tests
+
+Stdlib `unittest`, no third-party packages — the same zero-dependency stance the
+project takes at runtime. `djxl` round-trip assertions are skipped if `djxl` is
+absent; everything else skips if `cjxl` is absent.
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+## Requirements and non-goals
+
+- **Reader compatibility.** Output is JXL-only and will not display in most comic
+  readers. Chosen knowingly after weighing the sidecar alternative, and made
+  acceptable by byte-level reversibility.
+- **Long-term archival preservation.** JXL decoder support outside a few
+  libraries is too thin to recommend as a retention format. This tool's case is
+  per-user size and reversibility, not durability over decades.
+- **DPI preservation.** Pixel dimensions survive; physical density does not, and
+  is knowingly dropped.
+- **No image manipulation.** No resize, rotate, upscale, re-encoding of
+  non-JPEG pages, or `ComicInfo.xml` rewriting.
+- **No page-order repair.** Readers own the sort. This tool never silently
+  reorders a book.
+
+## License
+
+MIT

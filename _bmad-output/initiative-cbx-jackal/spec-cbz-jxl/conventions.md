@@ -85,8 +85,6 @@ validity check is needed.
 - Read entries with Python `zipfile` in stored order; never sort or renumber.
 - Write every entry with `ZIP_STORED`. JXL is already entropy-coded — deflate measured under 1% gain and
   costs real CPU on every page.
-- Preserve each entry's original compression type for pass-through entries as recorded in the source, except
-  that newly written JXL entries are STORED.
 - Build to a temp file in the destination directory, `fsync`, then `os.replace` onto
   `<name>.jxl.cbz`. `os.replace` is atomic within a filesystem; this is what guarantees CAP-4.
 - Clean up both the zip temp file and each per-page `.jxl` temp file on every exit path, including failure.
