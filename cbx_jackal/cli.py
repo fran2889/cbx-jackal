@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     # CAP-5: before opening any archive, so a missing dependency cannot be
     # discovered partway through a 200-page run.
     cjxl, error = preflight.check(TOOL)
-    if error is not None:
+    if cjxl is None:
         print(f"cbx-jackal: {error}", file=sys.stderr)
         return EXIT_ENVIRONMENT
 

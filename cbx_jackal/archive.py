@@ -370,7 +370,11 @@ class Converter:
             suffix=os.path.splitext(plan.name)[1],
             quality=self.quality,
         )
-        if not result.ok:
+        # `encode.run` only sets ok=True alongside data, so the second half of
+        # this guard is unreachable. It is spelled out because a page that
+        # somehow succeeded without bytes must still leave a hole rather than
+        # reach writestr as None.
+        if not result.ok or result.data is None:
             # Original bytes, original name, original position. The hole is
             # visible in the archive and again in the exit code.
             passthrough_plan = OutputPlan(plan.name, plan.name, transcode=False)
