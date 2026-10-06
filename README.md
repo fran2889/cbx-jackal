@@ -212,6 +212,17 @@ absent; everything else skips if `cjxl` is absent.
 python3 -m unittest discover -s tests -v
 ```
 
+Types are checked with [pyright](https://github.com/microsoft/pyright), pinned to
+the declared 3.9 floor in `pyrightconfig.json` rather than whatever interpreter
+you happen to run:
+
+```bash
+pyright
+```
+
+It is a development tool and is not a project dependency — nothing here installs
+it for you.
+
 ## Commit messages
 
 [Conventional Commits](https://www.conventionalcommits.org/): a lowercase type,

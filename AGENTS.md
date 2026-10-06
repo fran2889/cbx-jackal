@@ -21,6 +21,7 @@ Transcodes a CBZ comic archive's JPEG pages to JPEG XL, losslessly and byte-reve
 ## Running and verifying
 
 - `python3 -m unittest discover -s tests` — the whole suite; there is no test config in `pyproject.toml`.
+- Type-check with `pyright`, which `pyrightconfig.json` pins to the 3.9 floor. It is a dev tool, not installed by the project.
 - Confirm `cjxl`, `djxl` and `jxlinfo` are on PATH before trusting a green run. Without them the suite still reports OK: `Ran 29 tests ... OK (skipped=27)`, and 128 of 157 never execute.
 - Running as root skips the unwritable-directory and unreadable-file error tests (`os.geteuid() != 0`), so they vanish silently in containers.
 

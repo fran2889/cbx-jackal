@@ -8,8 +8,12 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
+from typing import TypeVar
 
 from cbx_jackal import preflight
+
+#: Bound to whatever `ArchiveTestCase.require` is asked to narrow.
+T = TypeVar("T")
 
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
@@ -88,15 +92,36 @@ class ArchiveTestCase(unittest.TestCase):
 
     requires_cjxl = True
 
+    #: Absolute path to cjxl. Any class that did not set requires_cjxl =
+    #: False has skipped by the time any test body runs, so this is always a
+    #: real path where it is read; the opting-out class gets "" and never
+    #: reads it, driving preflight.check itself instead.
+    cjxl: str = ""
+
     @classmethod
     def setUpClass(cls):
-        cls.cjxl = preflight.find_tool()
-        if cls.requires_cjxl and cls.cjxl is None:
+        resolved = preflight.find_tool()
+        if cls.requires_cjxl and resolved is None:
             raise unittest.SkipTest("cjxl is not on PATH")
+        cls.cjxl = resolved or ""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="cbx-jackal-test-")
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def require(self, value: T | None, what: str) -> T:
+        """Return `value`, failing the test if it is None.
+
+        For the places where the code under test guarantees a non-None value but
+        a checker cannot see the guarantee -- `Report.size_line()` before the
+        sizes are known, `EncodeResult.error` on a failed page, the encoded
+        bytes on a converted one. Naming what was missing beats letting None
+        reach `assertIn` or `write`, which raises a TypeError that says nothing
+        about which expectation broke.
+        """
+        if value is None:
+            self.fail("expected %s to be set, but it was None" % what)
+        return value
 
     def path(self, name: str) -> str:
         return os.path.join(self.tmp, name)

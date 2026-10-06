@@ -605,7 +605,7 @@ class DryRun(ArchiveTestCase):
     def test_size_figures_are_reported(self):
         report = Converter(self.cjxl).convert(self.source, dry_run=True)
         self.assertGreater(report.output_bytes, 0)
-        self.assertIn("bytes", report.size_line())
+        self.assertIn("bytes", self.require(report.size_line(), "size_line"))
         self.assertLess(report.output_bytes, report.source_bytes)
 
     def test_dry_run_over_a_corrupt_page_reports_the_failure(self):
@@ -713,12 +713,12 @@ class MissingDependency(ArchiveTestCase):
             self.skipTest("cjxl is not on PATH")
         resolved, error = preflight.check()
         self.assertIsNone(error)
-        self.assertTrue(os.path.exists(resolved))
+        self.assertTrue(os.path.exists(self.require(resolved, "resolved path")))
 
     def test_check_reports_an_error_when_absent(self):
         resolved, error = preflight.check("definitely-not-a-real-tool-xyz")
         self.assertIsNone(resolved)
-        self.assertIn("definitely-not-a-real-tool-xyz", error)
+        self.assertIn("definitely-not-a-real-tool-xyz", self.require(error, "error"))
 
     def test_cli_exits_non_zero_and_names_the_tool(self):
         from contextlib import redirect_stderr, redirect_stdout
@@ -1143,7 +1143,7 @@ class ReportedSizes(ArchiveTestCase):
         destination = destination_for(source)
         self.assertEqual(os.path.getsize(source), report.source_size_bytes)
         self.assertEqual(os.path.getsize(destination), report.output_size_bytes)
-        self.assertIn(str(os.path.getsize(destination)), report.size_line())
+        self.assertIn(str(os.path.getsize(destination)), self.require(report.size_line(), "size_line"))
 
     def test_deflated_source_is_compared_like_for_like(self):
         # Deflating the JXL pages on disk leaves the output effectively the same
@@ -1157,7 +1157,7 @@ class ReportedSizes(ArchiveTestCase):
         destination = destination_for(source)
         before = os.path.getsize(source)
         expected = abs(before - os.path.getsize(destination)) / before * 100.0
-        self.assertIn(f"{expected:.1f}%", report.size_line())
+        self.assertIn(f"{expected:.1f}%", self.require(report.size_line(), "size_line"))
 
     def test_a_grown_archive_is_reported_as_larger(self):
         # Zeros deflate to almost nothing and are written back STORED, so the
@@ -1175,13 +1175,13 @@ class ReportedSizes(ArchiveTestCase):
             os.path.getsize(source),
             "this fixture is meant to grow once written STORED",
         )
-        self.assertIn("larger", report.size_line())
-        self.assertNotIn("smaller", report.size_line())
+        self.assertIn("larger", self.require(report.size_line(), "size_line"))
+        self.assertNotIn("smaller", self.require(report.size_line(), "size_line"))
 
     def test_dry_run_does_not_pass_an_estimate_off_as_a_measurement(self):
         report = Converter(self.cjxl).convert(self.sample(), dry_run=True)
         self.assertIsNone(report.output_size_bytes)
-        self.assertIn("entry data only", report.size_line())
+        self.assertIn("entry data only", self.require(report.size_line(), "size_line"))
 
 
 class AbortPathReporting(ArchiveTestCase):
@@ -1202,7 +1202,7 @@ class AbortPathReporting(ArchiveTestCase):
             Converter(self.cjxl, strict=True).convert(source)
         report = caught.exception.report
         self.assertIsNotNone(report)
-        self.assertEqual(1, report.not_converted)
+        self.assertEqual(1, self.require(report, "report").not_converted)
 
     def test_strict_names_the_failed_page_on_the_abort_path(self):
         from contextlib import redirect_stderr

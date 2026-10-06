@@ -81,7 +81,7 @@ class LosslessReversibility(ArchiveTestCase):
         source = read_bytes(REAL_JPEG)
         result = encode.run(self.cjxl, source)
         self.assertTrue(result.ok, result.error)
-        self.assertReconstructsTo(result.data, source)
+        self.assertReconstructsTo(self.require(result.data, "data"), source)
 
     def test_lossless_output_is_smaller_than_the_source(self):
         source = read_bytes(REAL_JPEG)
@@ -128,23 +128,27 @@ class FailureDetection(ArchiveTestCase):
     def test_failure_message_is_a_single_line(self):
         result = encode.run(self.cjxl, read_bytes(CORRUPT_JPEG))
         self.assertIsNotNone(result.error)
-        self.assertNotIn("\n", result.error)
-        self.assertTrue(result.error.strip())
+        self.assertNotIn("\n", self.require(result.error, "error"))
+        self.assertTrue(self.require(result.error, "error").strip())
 
     def test_failure_message_drops_the_banner(self):
         # The report shows one readable line, not the whole libjxl log.
         result = encode.run(self.cjxl, read_bytes(CORRUPT_JPEG))
-        self.assertNotIn("JPEG XL encoder v", result.error)
-        self.assertNotIn("Note: Implicit-default", result.error)
+        self.assertNotIn("JPEG XL encoder v", self.require(result.error, "error"))
+        self.assertNotIn("Note: Implicit-default", self.require(result.error, "error"))
 
     def test_failure_message_keeps_the_exit_code(self):
         result = encode.run(self.cjxl, read_bytes(CORRUPT_JPEG))
-        self.assertTrue(result.error.startswith(f"cjxl exited {result.returncode} "))
+        self.assertTrue(
+            self.require(result.error, "error").startswith(
+                f"cjxl exited {result.returncode} "
+            )
+        )
 
     def test_failure_message_carries_libjxls_own_words(self):
         # Verbatim from cjxl, not reinterpreted by us.
         result = encode.run(self.cjxl, read_bytes(CORRUPT_JPEG))
-        self.assertIn("Error", result.error)
+        self.assertIn("Error", self.require(result.error, "error"))
 
     def test_misnamed_png_still_converts(self):
         # cjxl sniffs content, not extension.
@@ -158,7 +162,7 @@ class FailureDetection(ArchiveTestCase):
         self.assertTrue(result.ok, result.error)
         probe = self.path("probe.jxl")
         with open(probe, "wb") as handle:
-            handle.write(result.data)
+            handle.write(self.require(result.data, "data"))
         completed = subprocess.run(
             ["jxlinfo", probe], stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
@@ -172,7 +176,7 @@ class FailureDetection(ArchiveTestCase):
         self.assertTrue(result.ok, result.error)
         probe = self.path("lossy.jxl")
         with open(probe, "wb") as handle:
-            handle.write(result.data)
+            handle.write(self.require(result.data, "data"))
         completed = subprocess.run(
             ["jxlinfo", probe], stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
