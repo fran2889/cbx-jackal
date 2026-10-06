@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Reject commit subjects that are not Conventional Commits.
+
+Enforced: a `type:` prefix from TYPES below, then a subject whose first
+character is a lowercase letter.
+
+Exempt: merge commits, `Revert`/`fixup!`/`squash!`/`amend!` lines, and empty
+or comment-only messages.
+
+`feature` and `bugfix` are accepted alongside the canonical `feat`/`fix`
+because bmad-build derives the type from its plan frontmatter
+(`type: 'feature' | 'bugfix' | 'refactor' | 'chore'`) and would otherwise
+fail its own commit.
+
+Bypass for a single commit with `git commit --no-verify`.
+"""
+
+import re
+import sys
+
+# Canonical Conventional Commits types, plus bmad-build's plan vocabulary.
+TYPES = frozenset(
+    {
+        "build", "chore", "ci", "docs", "feat", "fix", "perf",
+        "refactor", "revert", "style", "test",
+        "feature", "bugfix",
+    }
+)
+
+EXEMPT_PREFIXES = ("Merge ", "Revert ", "fixup!", "squash!", "amend!")
+
+# type, or type(scope) — followed by ": ".
+HEADER = re.compile(r"^(?P<type>[a-z]+)(\((?P<scope>[^()]*)\))?: (?P<subject>.+)$")
+
+ADVICE = (
+    "Commit subject must be Conventional Commits: a lowercase type, then the subject.\n"
+    "  good: fix: treat output-name collisions the way readers resolve them\n"
+    "  good: feat(cli): add --dry-run\n"
+    "  bad:  Fix the thing\n"
+    "  bad:  fixed the thing\n"
+    "Types: %s\n"
+    "Bypass this commit with: git commit --no-verify" % ", ".join(sorted(TYPES))
+)
+
+
+def first_line(text):
+    """The first meaningful line: non-blank and not a git comment."""
+    for line in text.splitlines():
+        if line.strip() and not line.lstrip().startswith("#"):
+            return line.strip()
+    return None
+
+
+def main(argv):
+    if len(argv) < 2:
+        return 0
+
+    with open(argv[1], encoding="utf-8", errors="replace") as handle:
+        line = first_line(handle.read())
+
+    if line is None or line.startswith(EXEMPT_PREFIXES):
+        return 0
+
+    match = HEADER.match(line)
+    if match is None:
+        sys.stderr.write("Bad commit subject: %s\n\n%s\n" % (line, ADVICE))
+        return 1
+
+    if match.group("type") not in TYPES:
+        sys.stderr.write(
+            "Unknown commit type %r: %s\n\n%s\n" % (match.group("type"), line, ADVICE)
+        )
+        return 1
+
+    subject = match.group("subject")
+    if not subject[:1].islower():
+        sys.stderr.write(
+            "Commit subject must start lowercase: %s\n\n%s\n" % (line, ADVICE)
+        )
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
