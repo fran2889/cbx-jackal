@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import unicodedata
 import zipfile
 from dataclasses import dataclass
 
@@ -101,27 +102,47 @@ def destination_for(path: str) -> str:
     return os.path.join(directory, stem + ".jxl.cbz")
 
 
+def collision_key(output_name: str) -> str:
+    """The name a reader will actually resolve an output entry by.
+
+    Comparing output names literally is not enough. ``page.jxl`` and
+    ``page.JXL`` are distinct strings, so a literal check writes both and
+    reports success -- yet ZIP readers on macOS and Windows routinely resolve
+    member names case-insensitively, and archives assembled on macOS can carry
+    NFD-normalised names that collide after normalisation. Either way the second
+    member shadows the first and a converted page silently vanishes.
+
+    So the comparison folds case and normalises to NFC. Folding can report a
+    collision where the names would in fact have stayed distinct on a strictly
+    case-sensitive reader; that costs a refused archive the owner can resolve by
+    renaming, which is far cheaper than a silent duplicate.
+    """
+    return unicodedata.normalize("NFC", output_name).casefold()
+
+
 def build_plan(names: list[str]) -> list[OutputPlan]:
     """Classify every entry, in the order given.
 
-    Aborts when two entries would be written under the same output name. Writing
-    a ZIP with a duplicate member is not an error as far as `zipfile` is
-    concerned: the second member simply shadows the first, so a converted page
-    would silently vanish from a run that then reports success. Renaming is not
-    an option either -- the spec forbids it -- so the only safe answer is to
-    refuse the archive and say which entries collide.
+    Aborts when two entries would be written under a name a reader resolves
+    identically. Writing a ZIP with a duplicate member is not an error as far as
+    `zipfile` is concerned: the second member simply shadows the first, so a
+    converted page would silently vanish from a run that then reports success.
+    Renaming is not an option either -- the spec forbids it -- so the only safe
+    answer is to refuse the archive and say which entries collide.
     """
     plans = [classify(name) for name in names]
 
     owner: dict[str, str] = {}
     for plan in plans:
-        previous = owner.get(plan.output_name)
+        key = collision_key(plan.output_name)
+        previous = owner.get(key)
         if previous is not None:
             raise ArchiveError(
-                f"output name collision: {plan.name} and {previous} both write "
-                f"{plan.output_name}; one entry would be lost, so nothing is written"
+                f"output name collision: {plan.name} and {previous} both resolve "
+                f"to {plan.output_name} in a reader; one entry would be lost, so "
+                f"nothing is written"
             )
-        owner[plan.output_name] = plan.name
+        owner[key] = plan.name
 
     return plans
 

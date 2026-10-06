@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import unicodedata
 import unittest
 import zipfile
 
@@ -994,6 +995,64 @@ class OutputNameCollision(ArchiveTestCase):
                 ("page001.jxl", read_bytes(REAL_JPEG)),
             ],
         )
+
+    def test_case_differing_existing_jxl_aborts(self):
+        """`page.jpg` -> `page.jxl` beside an existing `page.JXL`.
+
+        Distinct strings, but ZIP readers on macOS and Windows resolve member
+        names case-insensitively, so the converted page would shadow or be
+        shadowed while the run reported success.
+        """
+        source = build_zip(
+            self.path("case.cbz"),
+            [
+                ("page001.jpg", read_bytes(REAL_JPEG)),
+                ("page001.JXL", read_bytes(REAL_JPEG)),
+            ],
+        )
+        with self.assertRaises(ArchiveError) as caught:
+            Converter(self.cjxl).convert(source)
+        message = str(caught.exception)
+        self.assertIn("collision", message)
+        self.assertIn("page001.jpg", message)
+        self.assertIn("page001.JXL", message)
+
+    def test_nfd_and_nfc_names_abort(self):
+        """Archives built on macOS can carry NFD-normalised names.
+
+        Two entries whose names differ only by normalisation form collide once
+        a reader normalises them, so the check has to as well.
+        """
+        nfc_name = "page\u00e9.jpg"
+        nfd_name = unicodedata.normalize("NFD", nfc_name)
+        if nfd_name == nfc_name:
+            self.skipTest("platform normalises the name to a single form")
+        # The two names differ ONLY by normalisation form, so the collision is
+        # normalisation's doing alone -- casefolding plays no part in it.
+        source = build_zip(
+            self.path("nfd.cbz"),
+            [
+                (nfc_name, read_bytes(REAL_JPEG)),
+                (nfd_name, read_bytes(REAL_JPEG)),
+            ],
+        )
+        with self.assertRaises(ArchiveError) as caught:
+            Converter(self.cjxl).convert(source)
+        self.assertIn("collision", str(caught.exception))
+
+    def test_distinct_names_still_convert(self):
+        """Folding must not refuse archives that genuinely do not collide."""
+        source = build_zip(
+            self.path("distinct.cbz"),
+            [
+                ("page001.jpg", read_bytes(REAL_JPEG)),
+                ("page002.JPEG", read_bytes(REAL_JPEG)),
+                ("notes.txt", b"hello"),
+            ],
+        )
+        report = Converter(self.cjxl).convert(source)
+        self.assertEqual(report.converted, 2)
+        self.assertEqual(report.not_converted, 0)
 
     def test_collision_aborts_the_run(self):
         source = self._colliding()
