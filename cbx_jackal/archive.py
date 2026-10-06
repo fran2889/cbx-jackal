@@ -20,6 +20,7 @@ import zipfile
 from dataclasses import dataclass
 
 from . import encode
+from .discover import OUTPUT_SUFFIX
 from .report import CONVERTED, NOT_CONVERTED, PASSED_THROUGH, EntryOutcome, Report
 
 #: Extensions whose entries are handed to `cjxl`. Case-insensitive: comic
@@ -95,11 +96,18 @@ def classify(name: str) -> OutputPlan:
 
 
 def destination_for(path: str) -> str:
-    """`<name>.jxl.cbz` beside the input. Never in-place."""
+    """`<name>.jxl.cbz` beside the input. Never in-place.
+
+    The suffix comes from `discover.OUTPUT_SUFFIX`, the single place it is
+    declared, because this function and the directory scan's skip of this tool's
+    own output have to agree. Two literals would drift: change the output suffix
+    here alone and a rescan would skip `.jxl.cbz` while this wrote `.jxl.zip`,
+    recreating the very `a.jxl.jxl.cbz` the skip exists to prevent.
+    """
     directory = os.path.dirname(os.path.abspath(path))
     stem = os.path.basename(path)
     stem = os.path.splitext(stem)[0]
-    return os.path.join(directory, stem + ".jxl.cbz")
+    return os.path.join(directory, stem + OUTPUT_SUFFIX)
 
 
 def collision_key(output_name: str) -> str:

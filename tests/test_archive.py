@@ -19,7 +19,7 @@ import zipfile
 # sys.path, the former does not.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cbx_jackal import cli, encode, preflight  # noqa: E402
+from cbx_jackal import cli, discover, encode, preflight  # noqa: E402
 from cbx_jackal.archive import (
     ArchiveError,
     Converter,
@@ -739,6 +739,44 @@ class MissingDependency(ArchiveTestCase):
         # And it never opened the archive: no output was produced.
         self.assertFalse(os.path.exists(destination_for(source)))
 
+    def test_the_preflight_runs_before_a_directory_is_even_scanned(self):
+        # CAP-5 said "before reading any archive"; a scan reads a directory
+        # full of them, so this is where that promise is actually at risk.
+        # Asserting only on the absence of output is not enough: expansion
+        # prints nothing when a directory holds archives, so moving the call
+        # above the preflight would leave the rest of the suite green.
+        lib = self.make_dir("lib")
+        for index in range(10):
+            self.make_archive(lib, f"issue{index:02d}.cbz")
+
+        real_which = shutil.which
+        shutil.which = lambda name, *a, **k: None if name == "cjxl" else real_which(
+            name, *a, **k
+        )
+        self.addCleanup(setattr, shutil, "which", real_which)
+
+        scanned = []
+        real_expand = discover.expand
+
+        def spy(paths, recursive=False):
+            scanned.append(list(paths))
+            return real_expand(paths, recursive=recursive)
+
+        discover.expand = spy
+        self.addCleanup(setattr, discover, "expand", real_expand)
+
+        code, out, err = self.capture([lib])
+
+        self.assertEqual(cli.EXIT_ENVIRONMENT, code)
+        self.assertEqual([], scanned, "the directory was scanned before the preflight")
+        self.assertEqual(1, err.count("cjxl was not found on PATH"), err)
+        self.assertEqual("", out)
+        self.assertNoTempFiles(lib)
+        for index in range(10):
+            self.assertFalse(
+                os.path.exists(os.path.join(lib, f"issue{index:02d}.jxl.cbz"))
+            )
+
 
 class CliSurface(ArchiveTestCase):
     """Exit codes, and the flags the plan requires."""
@@ -798,7 +836,7 @@ class CliSurface(ArchiveTestCase):
             for action in parser._actions
             for option in action.option_strings
         }
-        for flag in ("--quality", "--strict", "--dry-run", "--force"):
+        for flag in ("--quality", "--strict", "--dry-run", "--force", "--recursive"):
             with self.subTest(flag=flag):
                 self.assertIn(flag, options)
 
@@ -1429,6 +1467,577 @@ class MultiplePaths(ArchiveTestCase):
         with redirect_stderr(captured):
             cli.main([already])
         self.assertIn("already exists", captured.getvalue())
+
+
+class ArchiveSuffixes(unittest.TestCase):
+    """`discover`'s vocabulary, decided from names alone.
+
+    Three of these four names were reachable only indirectly, through `expand`.
+    A regression to case-sensitive matching would drop every uppercase archive
+    from every scan, and the suite would stay green -- so they are pinned here,
+    directly, rather than left to whatever a scan happens to cover.
+    """
+
+    def test_archive_suffixes_are_cbz_and_zip(self):
+        self.assertEqual((".cbz", ".zip"), discover.ARCHIVE_SUFFIXES)
+
+    def test_output_suffix_is_fixed_at_jxl_cbz(self):
+        self.assertEqual(".jxl.cbz", discover.OUTPUT_SUFFIX)
+
+    def test_every_declared_suffix_is_recognised(self):
+        for suffix in discover.ARCHIVE_SUFFIXES:
+            with self.subTest(suffix=suffix):
+                self.assertTrue(discover.is_archive(f"book{suffix}"))
+
+    def test_other_extensions_are_not_archives(self):
+        # `page.jpg` is deliberately here: a JPEG is a page, not an archive.
+        for name in ("notes.txt", "page.jpg", "book.jxl", "book", "book.cbz.tmp"):
+            with self.subTest(name=name):
+                self.assertFalse(discover.is_archive(name))
+
+    def test_matching_is_case_insensitive(self):
+        for name in ("Alpha.CBZ", "beta.ZIP", "Gamma.CbZ", "delta.Zip"):
+            with self.subTest(name=name):
+                self.assertTrue(discover.is_archive(name))
+
+    def test_this_tools_own_output_is_never_an_input(self):
+        for name in ("book.jxl.cbz", "book.JXL.CBZ", "book.zip.jxl.cbz"):
+            with self.subTest(name=name):
+                self.assertFalse(discover.is_archive(name))
+
+    def test_the_converter_and_the_scan_read_one_suffix(self):
+        # The drift guard: change the output suffix in one place only and this
+        # is where it shows. Both input suffixes, because the `.cbz` case alone
+        # would pass while `.zip` silently started yielding `.jxl.zip`.
+        for name in ("book.cbz", "book.zip"):
+            with self.subTest(name=name):
+                produced = os.path.basename(destination_for(name))
+                self.assertTrue(produced.endswith(discover.OUTPUT_SUFFIX))
+                self.assertFalse(
+                    discover.is_archive(produced),
+                    "the converter's output must be invisible to a scan",
+                )
+
+
+class PatternRecognition(unittest.TestCase):
+    """What counts as a pattern, which is the rule a literal path depends on."""
+
+    def test_metacharacters_make_a_pattern(self):
+        for pattern in ("lib/*.cbz", "lib/x?.cbz", "lib/[ab].cbz", "lib/a*b.cbz"):
+            with self.subTest(pattern=pattern):
+                self.assertTrue(discover.has_magic(pattern))
+
+    def test_a_plain_path_is_not_a_pattern(self):
+        for path in ("book.cbz", "lib/a.cbz", "lib/sub/", "weird]name.cbz"):
+            with self.subTest(path=path):
+                self.assertFalse(discover.has_magic(path))
+
+
+class DirectoryDiscovery(ArchiveTestCase):
+    """A directory argument means the archives it holds, and nothing else."""
+
+    def lib(self) -> str:
+        return self.make_dir("lib")
+
+    def test_a_file_path_is_converted_exactly_as_before(self):
+        source = self.make_archive(self.tmp, "a.cbz")
+        code, out, err = self.capture([source])
+        self.assertEqual(0, code, err)
+        self.assertTrue(os.path.exists(destination_for(source)))
+        self.assertIn("a.cbz -> ", out)
+
+    def test_root_archives_convert_and_subdirectories_are_left_alone(self):
+        lib = self.lib()
+        first = self.make_archive(lib, "a.cbz")
+        second = self.make_archive(lib, "b.cbz")
+        with open(os.path.join(lib, "notes.txt"), "w") as handle:
+            handle.write("not an archive\n")
+        sub = self.make_dir(os.path.join("lib", "sub"))
+        buried = self.make_archive(sub, "c.cbz")
+
+        code, out, err = self.capture([lib])
+
+        self.assertEqual(0, code, err)
+        self.assertTrue(os.path.exists(destination_for(first)))
+        self.assertTrue(os.path.exists(destination_for(second)))
+        self.assertFalse(
+            os.path.exists(destination_for(buried)),
+            "sub/c.cbz must not be converted without --recursive",
+        )
+        self.assertNotIn("sub/c.cbz", out)
+        self.assertTrue(os.path.exists(os.path.join(lib, "notes.txt")))
+
+    def test_uppercase_extensions_are_scanned_too(self):
+        # Comic libraries are full of `.CBZ`. A regression to case-sensitive
+        # matching would drop these silently, which is what this pins.
+        lib = self.lib()
+        shout = self.make_archive(lib, "Alpha.CBZ")
+        quiet = self.make_archive(lib, "beta.ZIP")
+
+        code, out, err = self.capture([lib])
+
+        self.assertEqual(0, code, err)
+        self.assertEqual([shout, quiet], self.report_sources(out))
+        self.assertTrue(os.path.exists(destination_for(shout)))
+        self.assertTrue(os.path.exists(destination_for(quiet)))
+
+    def test_a_zip_input_yields_a_jxl_cbz_never_a_jxl_zip(self):
+        lib = self.lib()
+        self.make_archive(lib, "b.zip")
+        code, _, err = self.capture([lib])
+        self.assertEqual(0, code, err)
+        self.assertTrue(os.path.exists(os.path.join(lib, "b.jxl.cbz")))
+        self.assertFalse(os.path.exists(os.path.join(lib, "b.jxl.zip")))
+
+    def test_a_directory_and_an_explicit_path_convert_together(self):
+        lib = self.lib()
+        first = self.make_archive(lib, "a.cbz")
+        second = self.make_archive(lib, "b.zip")
+        # A sibling *file*, not a directory that happens to be called c.cbz:
+        # an explicit argument is a path, and the point of this row is a file
+        # named alongside the scan.
+        outside = self.make_archive(self.tmp, "c.cbz", read_bytes(REAL_JPEG_2))
+
+        code, out, err = self.capture([lib, outside])
+
+        self.assertEqual(0, code, err)
+        self.assertEqual([first, second, outside], self.report_sources(out))
+        for source in (first, second, outside):
+            self.assertTrue(os.path.exists(destination_for(source)))
+
+    def test_a_previous_runs_output_is_not_converted_again(self):
+        lib = self.lib()
+        source = self.make_archive(lib, "a.cbz")
+        self.assertEqual(0, self.capture([lib])[0])
+        self.assertTrue(os.path.exists(os.path.join(lib, "a.jxl.cbz")))
+
+        # The scan itself skips this tool's own output; the one archive it does
+        # return is refused for already existing, and the run says so with the
+        # same exit code a single file would have given.
+        self.assertEqual([source], discover.expand([lib]))
+
+        code, _, err = self.capture([lib])
+
+        self.assertEqual(cli.EXIT_ENVIRONMENT, code)
+        self.assertIn("already exists", err)
+        self.assertFalse(
+            os.path.exists(os.path.join(lib, "a.jxl.jxl.cbz")),
+            "the output must never be fed back in as an input",
+        )
+
+    def test_one_stem_two_suffixes_converts_one_and_refuses_the_other(self):
+        lib = self.lib()
+        keeper = self.make_archive(lib, "a.cbz")
+        loser = self.make_archive(lib, "a.zip")
+        other = self.make_archive(lib, "z.cbz")
+
+        code, out, err = self.capture([lib])
+
+        self.assertEqual(cli.EXIT_ENVIRONMENT, code)
+        self.assertIn(destination_for(loser), err)
+        self.assertTrue(os.path.exists(destination_for(keeper)))
+        self.assertTrue(
+            os.path.exists(destination_for(other)),
+            "the rest of the directory is still work the owner asked for",
+        )
+        # a.cbz sorts first, so it is the one that wins the destination.
+        self.assertLess(
+            out.index("a.cbz -> "),
+            out.index("a.zip -> ") if "a.zip -> " in out else len(out),
+        )
+
+    def test_a_directory_with_no_archives_says_so_once_and_exits_zero(self):
+        lib = self.lib()
+        with open(os.path.join(lib, "notes.txt"), "w") as handle:
+            handle.write("nothing to convert\n")
+
+        code, out, err = self.capture([lib])
+
+        self.assertEqual(0, code)
+        self.assertEqual("", err)
+        self.assertEqual(1, out.count(lib), out)
+        self.assertEqual(1, len(out.splitlines()))
+
+    def test_a_nonexistent_path_is_reported_as_before(self):
+        missing = self.path("missing.cbz")
+        code, _, err = self.capture([missing])
+        self.assertEqual(cli.EXIT_FAILED, code)
+        self.assertIn("cannot read", err)
+        self.assertFalse(os.path.exists(destination_for(missing)))
+
+    def test_a_nonexistent_directory_is_reported_as_before(self):
+        code, _, err = self.capture([self.path("missing_dir")])
+        self.assertEqual(cli.EXIT_FAILED, code)
+        self.assertIn("cannot read", err)
+
+    def test_paths_are_reported_as_typed_not_absolutised(self):
+        # The converter resolves the destination itself, so absolutising here
+        # would only make a relative invocation report something the owner did
+        # not type -- noisier than the single-file behaviour it replaced.
+        lib = self.lib()
+        self.make_archive(lib, "a.cbz")
+        relative = os.path.relpath(lib)
+        expected = os.path.join(relative, "a.cbz")
+
+        self.assertEqual([expected], discover.expand([relative]))
+
+        code, out, err = self.capture([relative])
+
+        self.assertEqual(0, code, err)
+        self.assertEqual([expected], self.report_sources(out))
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "needs symlink support")
+    def test_symlinked_archives_are_not_followed(self):
+        lib = self.lib()
+        real = self.make_archive(lib, "a.cbz")
+        os.symlink(real, os.path.join(lib, "link.cbz"))
+
+        code, out, err = self.capture([lib])
+
+        self.assertEqual(0, code, err)
+        self.assertNotIn("link.cbz", out)
+        self.assertFalse(os.path.exists(os.path.join(lib, "link.jxl.cbz")))
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "needs symlink support")
+    def test_symlinked_directories_are_not_descended_into(self):
+        lib = self.lib()
+        elsewhere = self.make_dir("elsewhere")
+        buried = self.make_archive(elsewhere, "d.cbz")
+        os.symlink(elsewhere, os.path.join(lib, "series"))
+
+        code, _, err = self.capture([lib, "--recursive"])
+
+        self.assertEqual(0, code, err)
+        self.assertFalse(os.path.exists(destination_for(buried)))
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "needs symlink support")
+    def test_a_named_symlinked_directory_is_followed(self):
+        # The deliberate other half of the two tests above. A link found *by a
+        # scan* is skipped, because that is where a loop or two spellings of one
+        # archive lurk. A link the owner names is the owner's decision.
+        elsewhere = self.make_dir("elsewhere")
+        buried = self.make_archive(elsewhere, "d.cbz")
+        link = self.path("linked")
+        os.symlink(elsewhere, link)
+
+        code, out, err = self.capture([link])
+
+        self.assertEqual(0, code, err)
+        self.assertTrue(os.path.exists(destination_for(buried)))
+        self.assertEqual([os.path.join(link, "d.cbz")], self.report_sources(out))
+
+    def test_a_directory_with_one_archive_reports_it_once(self):
+        source = self.make_archive(self.lib(), "only.cbz")
+        code, out, err = self.capture([self.path("lib")])
+        self.assertEqual(0, code, err)
+        self.assertEqual(1, out.count(f"{source} -> "), out)
+        self.assertTrue(os.path.exists(destination_for(source)))
+
+    def test_a_directory_named_twice_converts_each_archive_once(self):
+        # Without the dedupe the second pass hits this run's own output and
+        # reports a refusal, downgrading a perfectly healthy batch to exit 2.
+        lib = self.lib()
+        first = self.make_archive(lib, "a.cbz")
+        second = self.make_archive(lib, "b.cbz")
+
+        code, out, err = self.capture([lib, lib])
+
+        self.assertEqual(0, code, err)
+        self.assertEqual([first, second], self.report_sources(out))
+
+    def test_a_directory_and_a_file_inside_it_convert_the_archive_once(self):
+        lib = self.lib()
+        first = self.make_archive(lib, "a.cbz")
+        second = self.make_archive(lib, "b.cbz")
+
+        code, out, err = self.capture([lib, os.path.join(lib, "a.cbz")])
+
+        self.assertEqual(0, code, err)
+        self.assertEqual([first, second], self.report_sources(out))
+        self.assertTrue(os.path.exists(destination_for(first)))
+
+    def test_a_file_named_twice_is_converted_once(self):
+        source = self.make_archive(self.tmp, "twice.cbz")
+
+        code, out, err = self.capture([source, source])
+
+        self.assertEqual(0, code, err)
+        self.assertEqual([source], self.report_sources(out))
+
+    def test_a_named_unreadable_directory_is_reported_as_cannot_read(self):
+        # The other half of the nested/named split in the walk. An unreadable
+        # directory the owner named is not a scan that came up empty, so it is
+        # handed on and the converter reports it as any path it cannot open.
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("root reads anything")
+        lib = self.lib()
+        reachable = self.make_archive(lib, "a.cbz")
+        locked = self.make_dir("locked")
+        self.make_archive(locked, "b.cbz")
+        os.chmod(locked, 0o000)
+        self.addCleanup(os.chmod, locked, 0o700)
+
+        code, out, err = self.capture([locked, lib])
+
+        self.assertEqual(cli.EXIT_FAILED, code)
+        self.assertIn("cannot read", err)
+        self.assertIn("locked", err)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "locked.jxl.cbz")))
+        self.assertTrue(
+            os.path.exists(destination_for(reachable)),
+            "one unreadable directory must not abandon the rest of the batch",
+        )
+
+
+class RecursiveDiscovery(ArchiveTestCase):
+    """--recursive mirrors the input tree, never hoisting anything."""
+
+    def lib(self) -> str:
+        return self.make_dir("lib")
+
+    def test_a_subdirectory_archive_is_converted_where_it_sits(self):
+        lib = self.lib()
+        first = self.make_archive(lib, "a.cbz")
+        second = self.make_archive(lib, "b.zip")
+        sub = self.make_dir(os.path.join("lib", "sub"))
+        buried = self.make_archive(sub, "c.cbz")
+
+        code, out, err = self.capture([lib, "--recursive"])
+
+        self.assertEqual(0, code, err)
+        self.assertEqual([first, second, buried], self.report_sources(out))
+        for source in (first, second, buried):
+            self.assertTrue(
+                os.path.exists(destination_for(source)),
+                "each output belongs beside its own input",
+            )
+        self.assertFalse(
+            os.path.exists(os.path.join(lib, "c.jxl.cbz")),
+            "output must land beside its own input, never hoisted to the parent",
+        )
+
+    def test_two_subdirectories_with_the_same_stem_both_convert(self):
+        lib = self.lib()
+        left = self.make_dir(os.path.join("lib", "a"))
+        right = self.make_dir(os.path.join("lib", "b"))
+        first = self.make_archive(left, "book.cbz")
+        second = self.make_archive(right, "book.cbz", read_bytes(REAL_JPEG_2))
+
+        code, _, err = self.capture([lib, "--recursive"])
+
+        self.assertEqual(0, code, err)
+        self.assertTrue(os.path.exists(destination_for(first)))
+        self.assertTrue(os.path.exists(destination_for(second)))
+        self.assertEqual("", err)
+
+    def test_recursion_is_depth_first_and_sorted_at_every_level(self):
+        # Built in an order scandir has no reason to reproduce, so a scan that
+        # does not sort shows up as a report in a different order.
+        lib = self.lib()
+        b = self.make_dir(os.path.join("lib", "b"))
+        a = self.make_dir(os.path.join("lib", "a"))
+        deep = self.make_dir(os.path.join("lib", "b", "deep"))
+        self.make_archive(lib, "zz.cbz")
+        self.make_archive(lib, "aa.cbz")
+        self.make_archive(b, "m.cbz")
+        self.make_archive(a, "n.cbz")
+        self.make_archive(deep, "q.cbz")
+
+        # Each level sorts on its own names, and a subdirectory is descended into
+        # at the position its name sorts to -- so "a" comes before "aa.cbz", and
+        # "b" before "b/m.cbz" but after its own "deep".
+        expected = [
+            os.path.join(a, "n.cbz"),
+            os.path.join(lib, "aa.cbz"),
+            os.path.join(deep, "q.cbz"),
+            os.path.join(b, "m.cbz"),
+            os.path.join(lib, "zz.cbz"),
+        ]
+        self.assertEqual(expected, list(discover.iter_directory(lib, True)))
+        self.assertEqual(
+            expected,
+            list(discover.iter_directory(lib, True)),
+            "two scans of one tree must agree",
+        )
+
+        code, out, err = self.capture([lib, "--recursive"])
+
+        self.assertEqual(0, code, err)
+        self.assertEqual(expected, self.report_sources(out))
+
+    def test_an_unreadable_subdirectory_is_skipped_with_a_warning(self):
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("root reads anything")
+        lib = self.lib()
+        reachable = self.make_archive(lib, "a.cbz")
+        locked = self.make_dir(os.path.join("lib", "locked"))
+        buried = self.make_archive(locked, "b.cbz")
+        os.chmod(locked, 0o000)
+        self.addCleanup(os.chmod, locked, 0o700)
+
+        code, out, err = self.capture([lib, "--recursive"])
+
+        self.assertEqual(0, code)
+        self.assertIn("locked", err)
+        self.assertTrue(
+            os.path.exists(destination_for(reachable)),
+            "an unreadable subdirectory must not abandon the rest of the tree",
+        )
+        self.assertFalse(os.path.exists(destination_for(buried)))
+
+
+class PatternDiscovery(ArchiveTestCase):
+    """A wildcard argument names archives, the way a directory does."""
+
+    def lib(self) -> str:
+        return self.make_dir("lib")
+
+    def test_a_pattern_converts_its_matches_in_sorted_order(self):
+        lib = self.lib()
+        # Created in an order glob has no reason to reproduce: glob yields
+        # filesystem order, which is no more alphabetical than scandir's.
+        third = self.make_archive(lib, "c.cbz")
+        first = self.make_archive(lib, "a.cbz")
+        second = self.make_archive(lib, "b.cbz")
+
+        pattern = os.path.join(lib, "*.cbz")
+
+        self.assertEqual(
+            [first, second, third],
+            discover.expand([pattern]),
+            "glob's filesystem order is not sorted order",
+        )
+
+        code, out, err = self.capture([pattern])
+
+        self.assertEqual(0, code, err)
+        self.assertEqual([first, second, third], self.report_sources(out))
+
+    def test_a_pattern_matching_nothing_says_so_once_and_exits_zero(self):
+        lib = self.lib()
+        self.make_archive(lib, "a.cbz")
+        pattern = os.path.join(lib, "nope*.cbz")
+
+        code, out, err = self.capture([pattern])
+
+        self.assertEqual(0, code)
+        self.assertEqual("", err)
+        self.assertEqual(1, out.count(pattern), out)
+        self.assertEqual(1, len(out.splitlines()))
+        self.assertEqual(["a.cbz"], sorted(os.listdir(lib)), "nothing may be written")
+
+    def test_a_pattern_ignores_files_that_are_not_archives(self):
+        lib = self.lib()
+        keep = self.make_archive(lib, "keep.cbz")
+        # A directory whose name carries an archive extension is the shape that
+        # would otherwise be handed straight to the converter as a zip.
+        self.make_dir(os.path.join("lib", "old.cbz"))
+        for name in ("notes.txt", "page.jpg", "other.jxl.cbz", "old.jxl"):
+            with open(os.path.join(lib, name), "w") as handle:
+                handle.write("not an archive\n")
+
+        pattern = os.path.join(lib, "*")
+
+        self.assertEqual([keep], discover.expand([pattern]))
+
+        code, out, err = self.capture([pattern])
+
+        self.assertEqual(0, code, err)
+        self.assertEqual([keep], self.report_sources(out))
+
+    def test_a_pattern_skips_this_tools_own_output(self):
+        lib = self.lib()
+        self.make_archive(lib, "a.cbz")
+        self.assertEqual(0, self.capture([lib])[0])
+
+        pattern = os.path.join(lib, "*.cbz")
+
+        # `a.jxl.cbz` matches `*.cbz` and must still be filtered out, or the
+        # second run would write the very `a.jxl.jxl.cbz` the skip prevents.
+        # So a pattern and a directory over the same tree must agree here.
+        survivor = [os.path.join(lib, "a.cbz")]
+        self.assertEqual(survivor, discover.expand([lib]))
+        self.assertEqual(survivor, discover.expand([pattern]))
+
+        code, out, err = self.capture([pattern])
+
+        self.assertEqual(cli.EXIT_ENVIRONMENT, code)
+        self.assertIn("already exists", err)
+        self.assertFalse(os.path.exists(os.path.join(lib, "a.jxl.jxl.cbz")))
+
+    def test_a_pattern_and_a_directory_convert_each_archive_once(self):
+        lib = self.lib()
+        first = self.make_archive(lib, "a.cbz")
+        second = self.make_archive(lib, "b.cbz")
+
+        code, out, err = self.capture([os.path.join(lib, "*.cbz"), lib])
+
+        self.assertEqual(0, code, err)
+        self.assertEqual([first, second], self.report_sources(out))
+
+    def test_a_pattern_is_not_recursive(self):
+        # `**` is documented as behaving as `*`: --recursive is the only thing
+        # that descends, so one flag must not mean two behaviours.
+        lib = self.lib()
+        self.make_archive(lib, "top.cbz")
+        sub = self.make_dir(os.path.join("lib", "sub"))
+        near = self.make_archive(sub, "deep.cbz")
+        far = self.make_archive(self.make_dir(os.path.join("lib", "sub", "deeper")),
+                                "deepest.cbz")
+
+        self.assertEqual(
+            [near],
+            discover.expand([os.path.join(lib, "**", "*.cbz")]),
+            "** must stop where * stops, not walk the whole tree",
+        )
+        self.assertEqual(
+            [far],
+            discover.expand([os.path.join(lib, "*", "*", "*.cbz")]),
+        )
+
+    def test_a_question_mark_pattern_matches_one_character(self):
+        lib = self.lib()
+        one = self.make_archive(lib, "issue1.cbz")
+        two = self.make_archive(lib, "issue2.cbz")
+        self.make_archive(lib, "issue10.cbz")
+
+        self.assertEqual([one, two], discover.expand([os.path.join(lib, "issue?.cbz")]))
+
+    def test_several_arguments_are_converted_in_the_order_given(self):
+        lib = self.lib()
+        lone = self.make_archive(self.tmp, "solo.cbz")
+        first = self.make_archive(lib, "x-one.cbz")
+        second = self.make_archive(lib, "x-two.cbz")
+
+        code, out, err = self.capture(
+            [lone, lib, os.path.join(lib, "x-*.cbz")]
+        )
+
+        self.assertEqual(0, code, err)
+        self.assertEqual([lone, first, second], self.report_sources(out))
+
+    def test_a_literal_path_is_never_globbed_or_filtered(self):
+        lib = self.lib()
+        self.make_archive(lib, "a.cbz")
+        odd = self.make_archive(lib, "a*.cbz")
+        notes = os.path.join(lib, "notes.txt")
+        with open(notes, "w") as handle:
+            handle.write("not an archive\n")
+
+        # `notes.txt` reaches the converter, which reports it, exactly as it did
+        # before expansion existed. Extension filtering is for scans and
+        # patterns only; a literal path is the owner's decision.
+        self.assertEqual([notes], discover.expand([notes]))
+
+        code, out, err = self.capture([notes])
+        self.assertEqual(cli.EXIT_FAILED, code)
+        self.assertIn("cannot read", err)
+
+        # And a name holding `*` is a file to convert, not a pattern to
+        # reinterpret into some other file.
+        code, out, err = self.capture([odd])
+        self.assertEqual(0, code, err)
+        self.assertTrue(os.path.exists(destination_for(odd)))
 
 
 if __name__ == "__main__":

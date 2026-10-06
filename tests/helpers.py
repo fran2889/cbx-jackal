@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 import shutil
 import subprocess
@@ -10,7 +11,7 @@ import unittest
 import zipfile
 from typing import TypeVar
 
-from cbx_jackal import preflight
+from cbx_jackal import cli, discover, preflight
 
 #: Bound to whatever `ArchiveTestCase.require` is asked to narrow.
 T = TypeVar("T")
@@ -125,6 +126,55 @@ class ArchiveTestCase(unittest.TestCase):
 
     def path(self, name: str) -> str:
         return os.path.join(self.tmp, name)
+
+    def make_dir(self, name: str) -> str:
+        """A subdirectory of `self.tmp`, cleaned up along with it.
+
+        Lives here rather than in each discovery test class so the scratch
+        layout is one definition: a copy per class is a copy to drift.
+        """
+        directory = self.path(name)
+        os.makedirs(directory, exist_ok=True)
+        return directory
+
+    def capture(self, argv) -> tuple[int, str, str]:
+        """Run `cli.main(argv)` with both streams captured.
+
+        Returns `(code, out, err)`. Every discovery test needs to say something
+        about both streams -- a report block on one, a refusal or a warning on
+        the other -- so this is the shared form rather than a per-class copy.
+        """
+        from contextlib import redirect_stderr, redirect_stdout
+
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def report_sources(self, out: str) -> list[str]:
+        """The `source` of every report block in captured stdout, in order.
+
+        Only lines whose destination ends in the output suffix count: a bare
+        `" -> "` split would also swallow the `36006 -> 20815 bytes` size line.
+        """
+        sources = []
+        for line in out.splitlines():
+            source, _, destination = line.partition(" -> ")
+            if destination.endswith(discover.OUTPUT_SUFFIX):
+                sources.append(source)
+        return sources
+
+    def make_archive(self, directory: str, name: str, page: bytes = b"") -> str:
+        """One real one-page archive at `directory/name`, returning its path.
+
+        `name` is joined onto `directory`, so `make_archive(self.tmp, "c.cbz")`
+        is a sibling *file*. Naming a directory the same way builds a directory,
+        which is never what a test about explicit paths wants.
+        """
+        return build_zip(
+            os.path.join(directory, name),
+            [("page001.jpg", page or read_bytes(REAL_JPEG))],
+        )
 
     def sample(self) -> str:
         """A two-page archive with metadata, in a deliberately unsorted order."""

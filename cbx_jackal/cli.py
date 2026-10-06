@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import __version__, preflight
+from . import __version__, discover, preflight
 from .archive import ArchiveError, Converter, OutputExistsError
 from .encode import TOOL
 
@@ -25,6 +25,14 @@ exit codes:
   0  every JPEG page converted (pass-through entries do not affect this)
   1  at least one JPEG page failed to convert, or an archive was unreadable
   2  usage error, missing cjxl, or the output already exists without --force
+
+A path may be an archive, a directory, or a wildcard pattern such as
+'lib/*.cbz'. A directory is scanned for archives in sorted order and each
+archive is converted where it sits; subdirectories are left alone unless
+--recursive is given. Already-converted .jxl.cbz files are skipped, and an
+archive named more than once is converted once. A directory or pattern that
+matches nothing is a note, not an error. Quote a pattern so the shell does not
+expand it before this tool sees it.
 
 The output is always a new file named <input>.jxl.cbz beside the input. The
 input is never modified. Requires cjxl from the libjxl tools package; see
@@ -45,8 +53,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "paths",
         nargs="+",
-        metavar="CBZ",
-        help="one or more comic archives to convert",
+        metavar="CBZ|DIR|PATTERN",
+        help=(
+            "one or more comic archives to convert, directories to scan for them, "
+            "or wildcard patterns such as 'lib/*.cbz'. Directories are not "
+            "descended into without --recursive. Quote a pattern so the shell "
+            "leaves it alone."
+        ),
+    )
+    parser.add_argument(
+        "--recursive",
+        "-r",
+        action="store_true",
+        help="descend into subdirectories when a path is a directory",
     )
     parser.add_argument(
         "--quality",
@@ -108,10 +127,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"cbx-jackal: {error}", file=sys.stderr)
         return EXIT_ENVIRONMENT
 
+    # After the preflight, so a missing cjxl is one message over a 300-file scan
+    # rather than 300 of them, and before the loop, so the loop keeps its shape
+    # and each expanded path keeps its own report and error handling.
+    paths = discover.expand(args.paths, recursive=args.recursive)
+
     converter = Converter(cjxl, quality=quality, strict=args.strict)
     exit_code = EXIT_OK
 
-    for path in args.paths:
+    for path in paths:
         try:
             report = converter.convert(
                 path, force=args.force, dry_run=args.dry_run
