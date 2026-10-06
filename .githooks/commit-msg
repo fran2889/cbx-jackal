@@ -38,6 +38,7 @@ ADVICE = (
     "  good: feat(cli): add --dry-run\n"
     "  bad:  Fix the thing\n"
     "  bad:  fixed the thing\n"
+    "Spec: https://www.conventionalcommits.org/\n"
     "Types: %s\n"
     "Bypass this commit with: git commit --no-verify" % ", ".join(sorted(TYPES))
 )

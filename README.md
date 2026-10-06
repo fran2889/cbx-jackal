@@ -212,6 +212,41 @@ absent; everything else skips if `cjxl` is absent.
 python3 -m unittest discover -s tests -v
 ```
 
+## Commit messages
+
+[Conventional Commits](https://www.conventionalcommits.org/): a lowercase type,
+then the subject. The body carries the reasoning, and it should — the history is
+where the *why* of this codebase lives.
+
+```
+fix: treat output-name collisions the way readers resolve them
+
+Compare via NFC normalisation plus casefold, matching how ZIP readers on
+macOS and Windows resolve member names.
+```
+
+Types: `feat`, `fix`, `chore`, `refactor`, `docs`, `test`, `perf`, `build`, `ci`,
+`style`, `revert` — plus `feature` and `bugfix`, which is what `bmad-build` emits
+from a plan's `type` frontmatter. A scope is optional: `feat(cli): add --dry-run`.
+
+### Enabling the check
+
+Commit subjects are enforced by `.githooks/commit-msg`. Point Git at it once per
+clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+That setting is **local Git config, so it cannot be committed** — a fresh clone
+gets the hook file but no enforcement until you run the line above. The test
+`tests/test_commit_hook.py` fails if the setting is missing, so the gap announces
+itself rather than passing quietly.
+
+Merge commits, `Revert`, and `fixup!`/`squash!` lines are exempt, as the
+Conventional Commits spec intends. `--no-verify` bypasses the hook for a single
+commit.
+
 ## Requirements and non-goals
 
 - **Reader compatibility.** Output is JXL-only and will not display in most comic
