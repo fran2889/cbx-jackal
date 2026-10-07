@@ -1,0 +1,33 @@
+# tickets.toml — initiative-cbx-jackal. The four queued capabilities.
+# Order of tables is the build order. `after` on an epic states what it needs from which epic. The gate that
+# actually blocks lives in each epic's own frontmatter, and is enforced there today. Once an epic has
+# entries, `tickets.py status` also reports this declaration as `unpinned_after` until one of its entries
+# names the same provider in its own `after` — so at each epic's inception, every entry that waits on this
+# must pin it.
+
+[[epic]]
+id = 1
+slug = "epic-bounded-downscaling"
+title = "Pages that fit the box stay untouched"
+covers = ["R1"]
+
+[[epic]]
+id = 2
+slug = "epic-webp-target"
+title = "WebP as a target the owner's reader can actually open"
+covers = ["R2"]
+after = [{ epic = 1, needs = "the naming-and-flags contract, and the outcome vocabulary that states per-page reversibility" }]
+
+[[epic]]
+id = 3
+slug = "epic-quality-audit"
+title = "An owner can see what happened to every page"
+covers = ["R3"]
+after = [{ epic = 1, needs = "the outcome vocabulary carrying the downscaled flag and the spread exemption this epic renders" }]
+
+[[epic]]
+id = 4
+slug = "epic-archive-containers"
+title = "Read the archives comic collections actually arrive in"
+covers = ["R4"]
+after = [{ epic = 1, needs = "the classification gate separating a raw page from an archive entry, the preflight shape for N tools, and the <name>.jxl.cbz naming rule" }]
