@@ -3,7 +3,7 @@ title: 'Convert a directory of archives'
 type: 'feature'
 ticket: ''
 created: '2026-10-06'
-status: 'in-progress'
+status: 'built'
 baseline_revision: 'c8ae0471e1bdef4204e00096f7616e8d5cfdc625'
 route: 'full'
 route_source: 'auto'
@@ -246,6 +246,18 @@ Findings #1 (plan correction), #2 and #3 (rejected `false`) needed no code.
   true. The refusal itself is asserted on stderr by path, so the row is still
   covered; only the ordering half is weakly pinned. The triage log records the
   mutation evidence that it is not vacuous.
+
+- **Re-verified 2026-10-06, on close-out.** This plan had been left at
+  `status: in-progress` while the work it describes was already shipped, reviewed and
+  committed (`24844b8`). Before moving the status to `built`, the claims above were
+  re-checked against the tree rather than taken on this file's word, with `cjxl`,
+  `djxl`, `jxlinfo` and `pyright` all confirmed on PATH so a green run meant
+  something: `python3 -m unittest discover -s tests` → `Ran 214 tests in 3.828s`,
+  `OK`, **zero skips**; `pyright` → `0 errors, 0 warnings, 0 informations`; all
+  four `Verification` commands behaved as specified, including the no-match pattern
+  exiting 0 with one note and nothing written. Working tree clean apart from an
+  unrelated change proposal. No code changed. The weak spot noted above is
+  unchanged and remains the one place a reviewer should look first.
 
 ## Plan Change Log
 
