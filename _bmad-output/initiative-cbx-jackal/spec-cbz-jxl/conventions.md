@@ -26,6 +26,15 @@ Must not set quality below 100 in combination with --lossless_jpeg=1, which is s
 
 Every lossy invocation must also pass `--lossless_jpeg=0`. Without it every lossy run fails.
 
+**PNG input is the other lossy-by-default case.** The `lossless_jpeg` default only covers JPEG input, so
+`cjxl in.png out.jxl` encodes *lossily*: measured 195,790 wrong pixels — 19.2% — on a saturated synthetic
+page. PNG input therefore always needs `-q 100`, which measured zero wrong pixels. "The lossless invocation
+passes no flags" is a statement about JPEG input and nothing else.
+
+**`-quality` on PNG is a compression knob, never a fidelity one.** Measured on ImageMagick 7.1.2-18 at every
+value including 30: it changed the output's byte size and never its pixels. 90 and 100 produced identical
+bytes.
+
 ## Lossless transcoding and reversibility
 
 libjxl's default for JPEG input is **lossless transcoding**, announced as:
@@ -54,7 +63,7 @@ possible, and it is present only in this mode.
 
 ## Effort and concurrency
 
-Do not expose an effort flag. Measured at A4/300dpi:
+Do not expose an effort flag. Measured at A4/300dpi on **JPEG input**:
 
 | Effort | Flat comic page | Detail-heavy page |
 |---|---|---|
@@ -62,7 +71,23 @@ Do not expose an effort flag. Measured at A4/300dpi:
 | **7 (default)** | **0.08 s, 45,359 B** | **0.16 s, 1,925,695 B** |
 | 9 | 0.91 s, 38,909 B | 3.88 s, 1,915,004 B |
 
-Effort 7 is free relative to effort 3. Effort 9 costs 10–25× the time for under 4% size. Leave the default.
+On JPEG input effort 7 is free relative to effort 3, and effort 9 costs 10–25× the time for under 4% size.
+
+**That free-lunch finding is specific to JPEG input and does not carry.** Lossless transcoding of a JPEG is a
+bitstream copy, so there is little for effort to spend. PNG input is modular lossless *encoding*, and effort
+bites:
+
+| Effort on PNG input | `.jxl` bytes | Time | Wrong pixels |
+|---|---|---|---|
+| 3 | 1,999 | 230 ms | 0 |
+| 5 | 1,298 | 689 ms | 0 |
+| **7 (default)** | **1,298** | **961 ms** | **0** |
+| 9 | 1,343 | 2,375 ms | 0 |
+
+Effort 7 costs roughly 4× effort 3 here, and produces output byte-identical to effort 5. The default is still
+the right one — one synthetic page is no basis for tuning against real comic art — but the earlier claim that
+effort is free is corrected to name JPEG input specifically, and anyone revisiting it on a PNG path should
+re-measure rather than assume.
 
 **No page-level parallelism.** At 0.08–0.16 s per page a 200-page book finishes in 16–32 s serially, and
 `cjxl` already threads internally. A process pool would add a subsystem for no measurable gain.

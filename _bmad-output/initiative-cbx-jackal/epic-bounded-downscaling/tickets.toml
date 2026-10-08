@@ -111,7 +111,6 @@ covers = ["R1"]
 after = [8]
 hitl = false
 risk = "medium"
-unknown = "The intermediate's format and quality are undecided and must be settled with investigation before this entry starts. Three routes were measured on a 1700x2400 synthetic comic page, comparing the final .jxl against the source's own decoded pixels: JPEG q92 loses 364,021 pixels (8.9%) and yields a 26,837-byte .jxl at 0.047 s/page; JPEG q100 loses 145,218 (3.6%) and yields 41,286 bytes at the same speed; a PNG intermediate with cjxl -q 100 loses zero and yields 27,784 bytes at 0.29 s/page. PPM and PAM measured identically to PNG. See this epic's Notes for the three consequences a lossless intermediate would force."
 
 [[entry]]
 id = 10

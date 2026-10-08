@@ -248,32 +248,69 @@ that the other three epics wait on. Not the output format (epic-webp-target), no
   **The preflight covers the tools the converter runs, not the tools the suite runs.** `djxl` and
   `jxlinfo` verify output; the converter never shells out to them, so neither is ever preflighted.
 - **Shared setup:** the EXIF injector is on entry 1, the first entry that needs it, and entry 2 extends it.
-- **Open decision, deferred to entry 9: the intermediate's format and quality.** Measured 2026-10-06 on a
-  1700x2400 synthetic comic page — hard line art, flat colour, text — decoding the source with one decoder
-  and comparing the final `.jxl` against it. Not a decision taken; the evidence for whoever settles it.
+- **Decision: the intermediate is a PNG, and the downscale path encodes it at `cjxl -q 100` (2026-10-08).**
+  Settled by the maintainer, closing the open question this epic had deferred to entry 9. Evidence below,
+  re-measured independently on 2026-10-08 against libjxl 0.11.1 and ImageMagick 7.1.2-18.
 
   | intermediate | pixels wrong | final `.jxl` | s/page | 200-page book |
   |---|---|---|---|---|
-  | JPEG q92 (the change proposal's draft value) | 364,021 — 8.9% | 26,837 | 0.047 | 9s |
+  | JPEG q92 | 364,021 — 8.9% | 26,837 | 0.047 | 9s |
   | JPEG q100 | 145,218 — 3.6% | 41,286 | 0.047 | 10s |
-  | PNG + `cjxl -q 100` | **0** | **27,784** | 0.29 | 58s |
+  | **PNG + `cjxl -q 100`** | **0** | 27,784 | 0.29 | 58s |
 
-  PPM and PAM measured identically to PNG on fidelity and output size; PNG is the pick on intermediate
-  disk size (79 KB against 12 MB, transient either way). The 6× cost is modular lossless encoding, not
-  input parsing. JPEG q100 is dominated: it pays 54% more archive size than q92 *and* still discards
-  3.6% of the page, while the PNG route is lossless and 33% smaller than it.
+  Measured 2026-10-06 on a 1700x2400 synthetic comic page — hard line art, flat colour, text — comparing the
+  final `.jxl` against the intermediate's own pixels. PPM and PAM measured identically to PNG on fidelity and
+  output size; PNG wins on intermediate disk size (79 KB against 12 MB, transient either way). JPEG q100 is
+  dominated: 54% more archive size than q92 *and* it still discards 3.6% of the page.
 
-  **Three consequences a lossless intermediate would force**, all of which are decisions, not parameters:
-  1. `cjxl` defaults to *lossy* on PNG input — measured 198,397 wrong pixels, 4.9%, with no flags. So
-     `-q 100` becomes mandatory on this path, which breaks the convention `encode.py`'s docstring exists to
-     explain ("the lossless path passes no flags at all") and needs a second branch in `build_command`.
-  2. `djxl` returns a PNG, not a JPEG, and `jxlinfo` reports no JPEG reconstruction data. The guarantee
-     becomes *stronger but different*: pixels exactly preserved, the original JPEG file not.
-  3. It settles the run-level interaction for free — with a lossless intermediate, `--quality` applies to
-     the JXL encode only and never to the intermediate, so `--quality 90 --max-width 1600` has one answer.
+  **Why PNG rather than the cheaper routes.** An owner who asks for a box has already surrendered
+  byte-recoverability for that page; they have not agreed to a second lossy generation on top of the resize.
+  JPEG q92 silently corrupts 8.9% of a downscaled page's pixels, on hard line art, in the one route where the
+  owner cannot check afterwards because the intermediate is discarded either way. PNG costs 3.5% archive size
+  against q92 and is 33% *smaller* than q100. The price is 6.2× the time.
 
-  The cost is real: a downscaled 200-page book goes from about 9s to about 58s, roughly doubling the
-  figure `conventions.md` currently states, though only for pages actually downscaled.
+  **Re-verified, and the `-q 100` mandate is stronger than first recorded.** `cjxl` with no flags on a PNG
+  intermediate lost **195,790 pixels (19.2%)** on a saturated synthetic page, against the 4.9% this epic had
+  recorded on lighter content. `-q 100` lost zero. So the mandate holds and the default is worse than
+  believed; `build_command` needs its second branch, and the "the lossless path passes no flags at all"
+  convention holds only for JPEG input.
+
+  **`magick`'s own `-quality` is not a decision on this path.** Measured fidelity-neutral at every value
+  tested, `-quality 30` included: it changed the intermediate's byte size and never its pixels. `-quality 100`
+  is the confirmed value because it is the least room for doubt and costs nothing — 90 and 100 produced
+  identical bytes.
+
+  **`cjxl` effort stays at the default on this path.** Measured on PNG input, effort is *not* free as it is
+  on JPEG input, where lossless transcoding is a bitstream copy:
+
+  | `cjxl -e N` on a PNG intermediate | `.jxl` bytes | ms | wrong pixels |
+  |---|---|---|---|
+  | 3 | 1,999 | 230 | 0 |
+  | 5 | 1,298 | 689 | 0 |
+  | 7 (default) | 1,298 | 961 | 0 |
+  | 9 | 1,343 | 2,375 | 0 |
+
+  Effort 7 costs about 4× effort 3 for byte-identical output to effort 5. The default is kept — no new flag,
+  and a single easy synthetic page is no basis for tuning against real comic art. `conventions.md`'s
+  "effort 7 is free relative to effort 3" is narrowed to the JPEG route, where it was measured.
+
+  **What this settles downstream.** In entry 4's vocabulary every downscaled page is `pixels` and
+  `intermediate` is unreachable, so that value stands in the contract with no live instance — deliberately,
+  so that a later switch of intermediate needs no wording change. `--quality` applies to the `.jxl` encode
+  only and never to the intermediate, so `--quality 90 --max-width 1600` has one answer: a lossy run, every
+  page `none`.
+- **Source conflict: the change proposal's CAP-1 amendment, its conventions reversal, and its `jxlinfo`
+  reversal all assume the JPEG intermediate.** All three claim a downscaled page *keeps* reconstruction data
+  and that `djxl` reproduces *the intermediate* byte-for-byte — the proposal's section 4.1 success text, the
+  reversal appended to `conventions.md` after `:26`, and the reversal appended to the `jxlinfo` paragraph at
+  `:405`, plus the section 4.8 table row "source recoverable only as the intermediate". With a PNG
+  intermediate there is no reconstruction data at all: `djxl` returns a PNG and `jxlinfo` reports none. The
+  proposal flagged this choice as "open, not settled here" at `:384` and then assumed the JPEG answer
+  anyway. The proposals' *caution* survives unchanged — a downscaled book must not be allowed to look like a
+  CAP-1 book, and reconstruction data never proved which generation was present — but its stated mechanism
+  is now wrong, and under PNG the absence of reconstruction data is a cleaner signal rather than a weaker
+  one. Entry 1.7 carries the correction into the spec; the approved text is not edited here.
+
 - **Entry count: 15,** at the top of the range and above the typical eight to twelve, because this is one
   lane with one owner and five entries are decisions rather than code. Offered for a split if wanted; a
   split is defensible along the decision/code seam that entries 3 to 7 already form.
