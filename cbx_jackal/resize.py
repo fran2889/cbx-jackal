@@ -97,7 +97,7 @@ def _build_command(
         input_path,
         "-auto-orient",
         "-quality", MAGICK_QUALITY,
-        f"{target_width}x{target_height}>",
+        "-resize", f"{target_width}x{target_height}>",
         f"{INTERMEDIATE_FORMAT[1:]}:{output_path}",  # Remove leading dot
     ]
 
@@ -264,7 +264,6 @@ def resize_page(
             return ResizeResult(
                 ok=False,
                 error=str(exc),
-                returncode=-1,
                 original_width=original_width,
                 original_height=original_height,
                 display_width=display_dims.width,
@@ -280,7 +279,6 @@ def resize_page(
                     completed.stderr.decode("utf-8", "replace"),
                     completed.returncode,
                 ),
-                returncode=completed.returncode,
                 original_width=original_width,
                 original_height=original_height,
                 display_width=display_dims.width,
@@ -293,7 +291,6 @@ def resize_page(
             return ResizeResult(
                 ok=False,
                 error="magick reported success but wrote no output file",
-                returncode=completed.returncode,
                 original_width=original_width,
                 original_height=original_height,
                 display_width=display_dims.width,
@@ -310,7 +307,6 @@ def resize_page(
             return ResizeResult(
                 ok=False,
                 error="magick produced an empty output file",
-                returncode=completed.returncode,
                 original_width=original_width,
                 original_height=original_height,
                 display_width=display_dims.width,

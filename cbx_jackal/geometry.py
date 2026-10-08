@@ -45,6 +45,96 @@ ORIENTATION_MAP = {
 # Spread detection threshold: 1.35:1 ratio
 SPREAD_ASPECT_THRESHOLD = 1.35
 
+# JPEG frame header markers
+SOF0 = 0xFFC0  # Start of Frame 0 - Baseline DCT
+SOF2 = 0xFFC2  # Start of Frame 2 - Progressive DCT
+SOF1 = 0xFFC1  # Start of Frame 1 - Extended sequential DCT
+SOF3 = 0xFFC3  # Start of Frame 3 - Lossless (sequential)
+
+# Valid SOF markers for dimension extraction
+SOF_MARKERS = (SOF0, SOF1, SOF2, SOF3)
+
+
+def _read_jpeg_dimensions_from_sof(jpeg_bytes: bytes) -> tuple[int, int] | None:
+    """Extract width and height from a JPEG SOF (Start of Frame) segment.
+    
+    Scans the JPEG bytes for SOF0-SOF3 markers and reads the height and width
+    from the frame header. Returns (width, height) or None if no valid SOF found.
+    """
+    if len(jpeg_bytes) < 4:
+        return None
+    
+    # JPEG files start with SOI (0xFFD8)
+    if jpeg_bytes[:2] != b'\xff\xd8':
+        return None
+    
+    offset = 2
+    while offset + 4 <= len(jpeg_bytes):
+        # Each segment starts with 0xFF followed by a marker byte
+        if jpeg_bytes[offset] != 0xFF:
+            # Not a marker, skip to next byte
+            offset += 1
+            continue
+        
+        marker = jpeg_bytes[offset+1]
+        
+        # Check if this is a Start of Frame marker
+        if marker in (0xC0, 0xC1, 0xC2, 0xC3):
+            # Found SOF marker - skip marker (2 bytes) and read length (2 bytes)
+            if offset + 4 > len(jpeg_bytes):
+                return None
+                
+            # Read segment length (includes the length field itself)
+            segment_length = struct.unpack('>H', jpeg_bytes[offset+2:offset+4])[0]
+            
+            # SOF segment structure: marker(2) + length(2) + precision(1) + height(2) + width(2) + components(N)
+            # We need at least 7 more bytes: precision + height + width + components count
+            if offset + 2 + segment_length > len(jpeg_bytes):
+                return None
+            
+            data_start = offset + 4  # Skip marker and length
+            
+            # precision byte (1 byte) - we don't need this
+            # height is next 2 bytes
+            height_start = data_start + 1
+            if height_start + 2 > len(jpeg_bytes):
+                return None
+                
+            height = struct.unpack('>H', jpeg_bytes[height_start:height_start+2])[0]
+            
+            # width is next 2 bytes after height
+            width_start = height_start + 2
+            if width_start + 2 > len(jpeg_bytes):
+                return None
+                
+            width = struct.unpack('>H', jpeg_bytes[width_start:width_start+2])[0]
+            
+            return width, height
+        
+        # Not an SOF marker - skip this segment
+        if offset + 4 > len(jpeg_bytes):
+            break
+            
+        # Read segment length to skip to next segment
+        segment_length = struct.unpack('>H', jpeg_bytes[offset+2:offset+4])[0]
+        
+        if segment_length < 2:
+            offset += 2
+        else:
+            offset += 2 + segment_length
+    
+    return None
+
+
+def get_jpeg_dimensions(jpeg_bytes: bytes) -> tuple[int, int] | None:
+    """Extract width and height from JPEG bytes.
+    
+    Returns (width, height) tuple or None if dimensions cannot be extracted.
+    This function scans the JPEG for SOF (Start of Frame) markers and extracts
+    the encoded dimensions from the frame header.
+    """
+    return _read_jpeg_dimensions_from_sof(jpeg_bytes)
+
 
 class DisplayDimensions(NamedTuple):
     """Width and height in display orientation, after EXIF orientation is honoured."""
@@ -322,26 +412,36 @@ def needs_downscale(
 
 def compute_page_geometry(
     jpeg_bytes: bytes, 
-    original_width: int, 
-    original_height: int,
+    original_width: int | None = None, 
+    original_height: int | None = None,
     max_width: int | None = None, 
     max_height: int | None = None
-) -> PageGeometry:
+) -> PageGeometry | None:
     """Compute complete geometric description of a page.
     
-    Combines EXIF orientation reading, display dimension calculation,
+    Combines JPEG dimension extraction, EXIF orientation reading, display dimension calculation,
     spread detection, and downscaling need into one call.
     
     Args:
         jpeg_bytes: The raw JPEG bytes.
-        original_width: Original pixel width.
-        original_height: Original pixel height.
+        original_width: Original pixel width (optional, will be extracted from JPEG if None).
+        original_height: Original pixel height (optional, will be extracted from JPEG if None).
         max_width: Maximum allowed width for downscale check.
         max_height: Maximum allowed height for downscale check.
     
     Returns:
-        PageGeometry with all computed values.
+        PageGeometry with all computed values, or None if dimensions cannot be extracted.
     """
+    # Extract dimensions if not provided
+    if original_width is None or original_height is None:
+        jpeg_dims = get_jpeg_dimensions(jpeg_bytes)
+        if jpeg_dims is None:
+            return None
+        if original_width is None:
+            original_width = jpeg_dims[0]
+        if original_height is None:
+            original_height = jpeg_dims[1]
+    
     display_dims = get_display_dimensions(jpeg_bytes, original_width, original_height)
     orientation = read_exif_orientation(jpeg_bytes)
     is_spread_flag = is_spread(display_dims.width, display_dims.height)

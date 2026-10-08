@@ -26,6 +26,12 @@ from typing import Callable, Protocol
 from . import encode, preflight
 from .discover import DEFAULT_FORMAT, output_suffix
 from .report import CONVERTED, NOT_CONVERTED, PASSED_THROUGH, EntryOutcome, Report
+from .geometry import compute_page_geometry, get_jpeg_dimensions, PageGeometry
+from .resize import resize_page, ResizeResult
+from .report_downscale import (
+    PIXELS, ExtendedEntryOutcome, DownscaledInfo, SpreadInfo, DownscaleReport, 
+    format_per_page_lines, format_run_level_mode
+)
 
 #: Extensions whose entries are handed to `cjxl`. Case-insensitive: comic
 #: archives are full of `.JPG` and `.JPEG`.
@@ -1093,9 +1099,57 @@ class Converter:
             )
             return
 
+        # Check if downscaling is needed for this JPEG page
+        processed_data = data
+        downscaled_info = None
+        spread_info = None
+        recoverability = None
+        
+        if self.box_requested and self.magick:
+            # Extract dimensions from JPEG
+            jpeg_dims = get_jpeg_dimensions(data)
+            if jpeg_dims is not None:
+                jpeg_width, jpeg_height = jpeg_dims
+                
+                # Compute page geometry including EXIF orientation and spread detection
+                page_geometry = compute_page_geometry(
+                    data, jpeg_width, jpeg_height, self.max_width, self.max_height
+                )
+                
+                if page_geometry is not None:
+                    if page_geometry.is_spread:
+                        # Spread pages are exempt from downscaling
+                        spread_info = SpreadInfo(
+                            display_width=page_geometry.display_width,
+                            display_height=page_geometry.display_height
+                        )
+                        recoverability = PIXELS  # Spreads keep original pixels
+                    elif page_geometry.needs_downscale:
+                        # Need to downscale this page
+                        resize_result = resize_page(
+                            self.magick,
+                            data,
+                            jpeg_width,
+                            jpeg_height,
+                            self.max_width,
+                            self.max_height
+                        )
+                        
+                        if resize_result.ok and resize_result.data is not None:
+                            processed_data = resize_result.data
+                            downscaled_info = DownscaledInfo(
+                                original_width=resize_result.original_width,
+                                original_height=resize_result.original_height,
+                                target_width=resize_result.target_width,
+                                target_height=resize_result.target_height
+                            )
+                            # PNG intermediate means pixels are recoverable but source JPEG is not
+                            recoverability = PIXELS
+                        # If resize failed, continue with original data and it will fail in cjxl
+
         result = encode.run(
             self.cjxl,
-            data,
+            processed_data,
             suffix=os.path.splitext(plan.name)[1],
             quality=self.quality,
         )
@@ -1120,14 +1174,42 @@ class Converter:
             return
 
         target.writestr(_stored_info(plan, template), result.data)
-        report.add(
-            EntryOutcome(
+        
+        # Create extended outcome for reporting if this is a JPEG with downscaling/spread info
+        if downscaled_info is not None or spread_info is not None:
+            extended_outcome = ExtendedEntryOutcome(
                 name=plan.output_name,
                 classification=CONVERTED,
                 source_size=size,
                 output_size=result.size,
+                downscaled=downscaled_info,
+                spread=spread_info,
+                recoverability=recoverability
             )
-        )
+            # Add to a separate tracking or extend the existing report
+            # For now, we'll use the regular EntryOutcome and handle extended reporting separately
+            report.add(
+                EntryOutcome(
+                    name=plan.output_name,
+                    classification=CONVERTED,
+                    source_size=size,
+                    output_size=result.size,
+                )
+            )
+            
+            # Store extended info for later reporting
+            if not hasattr(report, '_extended_outcomes'):
+                report._extended_outcomes = []
+            report._extended_outcomes.append(extended_outcome)
+        else:
+            report.add(
+                EntryOutcome(
+                    name=plan.output_name,
+                    classification=CONVERTED,
+                    source_size=size,
+                    output_size=result.size,
+                )
+            )
 
     def _process_dry_run(
         self,
@@ -1160,13 +1242,78 @@ class Converter:
             )
             return
 
+        # Check if downscaling is needed for this JPEG page
+        processed_data = data
+        downscaled_info = None
+        spread_info = None
+        recoverability = None
+        
+        if self.box_requested and self.magick:
+            # Extract dimensions from JPEG
+            jpeg_dims = get_jpeg_dimensions(data)
+            if jpeg_dims is not None:
+                jpeg_width, jpeg_height = jpeg_dims
+                
+                # Compute page geometry including EXIF orientation and spread detection
+                page_geometry = compute_page_geometry(
+                    data, jpeg_width, jpeg_height, self.max_width, self.max_height
+                )
+                
+                if page_geometry is not None:
+                    if page_geometry.is_spread:
+                        # Spread pages are exempt from downscaling
+                        spread_info = SpreadInfo(
+                            display_width=page_geometry.display_width,
+                            display_height=page_geometry.display_height
+                        )
+                        recoverability = PIXELS  # Spreads keep original pixels
+                    elif page_geometry.needs_downscale:
+                        # Need to downscale this page
+                        resize_result = resize_page(
+                            self.magick,
+                            data,
+                            jpeg_width,
+                            jpeg_height,
+                            self.max_width,
+                            self.max_height
+                        )
+                        
+                        if resize_result.ok and resize_result.data is not None:
+                            processed_data = resize_result.data
+                            downscaled_info = DownscaledInfo(
+                                original_width=resize_result.original_width,
+                                original_height=resize_result.original_height,
+                                target_width=resize_result.target_width,
+                                target_height=resize_result.target_height
+                            )
+                            # PNG intermediate means pixels are recoverable but source JPEG is not
+                            recoverability = PIXELS
+                        # If resize failed, continue with original data and it will fail in cjxl
+
         result = encode.run(
             self.cjxl,
-            data,
+            processed_data,
             suffix=os.path.splitext(plan.name)[1],
             quality=self.quality,
         )
+        
         if result.ok:
+            # Store extended info for later reporting if this is a downscaled or spread page
+            if downscaled_info is not None or spread_info is not None:
+                extended_outcome = ExtendedEntryOutcome(
+                    name=plan.output_name,
+                    classification=CONVERTED,
+                    source_size=size,
+                    output_size=result.size,
+                    downscaled=downscaled_info,
+                    spread=spread_info,
+                    recoverability=recoverability
+                )
+                # Store extended info for later reporting
+                if not hasattr(report, '_extended_outcomes'):
+                    report._extended_outcomes = []
+                report._extended_outcomes.append(extended_outcome)
+            
             report.add(
                 EntryOutcome(
                     name=plan.output_name,
@@ -1176,6 +1323,23 @@ class Converter:
                 )
             )
             return
+
+        # For failed cases, still store extended info if we had downscaling/spread detection
+        if downscaled_info is not None or spread_info is not None:
+            extended_outcome = ExtendedEntryOutcome(
+                name=plan.name,
+                classification=NOT_CONVERTED,
+                reason=result.error,
+                source_size=size,
+                output_size=size,
+                downscaled=downscaled_info,
+                spread=spread_info,
+                recoverability=recoverability
+            )
+            # Store extended info for later reporting
+            if not hasattr(report, '_extended_outcomes'):
+                report._extended_outcomes = []
+            report._extended_outcomes.append(extended_outcome)
 
         report.add(
             EntryOutcome(

@@ -17,6 +17,10 @@ would mean no archive ever converted successfully.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .report_downscale import ExtendedEntryOutcome
 
 CONVERTED = "converted"
 PASSED_THROUGH = "passed through"
@@ -53,6 +57,8 @@ class Report:
     #: Size of the published archive on disk. None until it is published, and
     #: None for good on a dry run or an abort.
     output_size_bytes: int | None = None
+    #: Extended outcomes for downscaling and spread reporting (for entry 12-14 integration)
+    _extended_outcomes: list = field(default_factory=list)
 
     def add(self, outcome: EntryOutcome) -> EntryOutcome:
         self.outcomes.append(outcome)
@@ -148,13 +154,29 @@ class Report:
 
     def render(self, quality: int | None = None, dry_run: bool = False) -> str:
         """Full human-facing report: mode, per-failure lines, summary, sizes."""
+        from .report_downscale import format_per_page_lines, format_run_level_mode
+        
         lines = [f"{self.source} -> {self.destination}"]
-        if quality is None or quality >= 100:
-            mode = "lossless (JPEG bytes recoverable with djxl)"
+        
+        # Use extended mode formatting if we have downscaling/spread info
+        if self._extended_outcomes:
+            mode_line = format_run_level_mode(quality)
         else:
-            mode = f"lossy, quality {quality} (JPEG bytes NOT recoverable)"
-        lines.append(f"mode: {mode}{' [dry run, nothing written]' if dry_run else ''}")
+            if quality is None or quality >= 100:
+                mode = "lossless (JPEG bytes recoverable with djxl)"
+            else:
+                mode = f"lossy, quality {quality} (JPEG bytes NOT recoverable)"
+            mode_line = f"mode: {mode}{' [dry run, nothing written]' if dry_run else ''}"
+        
+        lines.append(mode_line)
         lines.extend(self.failure_lines())
+        
+        # Add per-page lines for downscaled and spread pages
+        if self._extended_outcomes:
+            from .report_downscale import format_per_page_lines
+            per_page_lines = format_per_page_lines(self._extended_outcomes)
+            lines.extend(per_page_lines)
+        
         lines.append(self.summary())
         size_line = self.size_line()
         if size_line:
