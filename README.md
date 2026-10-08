@@ -99,8 +99,9 @@ cbx-jackal: cjxl was not found on PATH.
 
 ## Install
 
-Python 3.9 or newer. No runtime dependencies at all — container handling is the
-standard library only, with no Python imaging libraries.
+Python 3.9 or newer. No Python dependencies at all — container handling is the
+standard library, with no Python imaging libraries. A CB7 or 7Z input also needs
+the `7z` command, which is never bundled.
 
 ```bash
 pip install .
@@ -180,11 +181,11 @@ paths, so a bad archive in the middle still does not abandon the batch.
 |---|---|
 | `0` | Every JPEG page converted. Pass-through entries never affect this. |
 | `1` | At least one JPEG page failed to convert, or an archive was unreadable. |
-| `2` | Usage error, missing `cjxl`, or the output already exists without `--force`. |
+| `2` | Usage error, a missing tool (`cjxl` always, `7z` when an input needs it), or the output already exists without `--force`. |
 
 ## What happens to each entry
 
-Every entry gets exactly one outcome, in the source archive's **stored order**.
+Every entry gets exactly one outcome, in the source's **stored order**.
 Nothing is sorted, renumbered, or repaired.
 
 | Entry | Action | Output name |
@@ -196,7 +197,7 @@ Nothing is sorted, renumbered, or repaired.
 | `ComicInfo.xml`, `readme.txt`, any non-image | copied verbatim | unchanged |
 | `__MACOSX/` and resource-fork junk | copied verbatim | unchanged |
 | Nested folders | copied verbatim, structure preserved | unchanged |
-| Anything unreadable from the ZIP | abort the run, leave no output | — |
+| Anything unreadable from the source | abort that input, leave no output | — |
 
 Three reporting classes, because conflating the second and third would make a
 healthy run look broken:

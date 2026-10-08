@@ -5,11 +5,13 @@ One test class or method per row, so a failure names the row that broke.
 
 from __future__ import annotations
 
+import glob
 import io
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import unicodedata
 import unittest
 import zipfile
@@ -38,6 +40,7 @@ from helpers import (  # noqa: E402
     REAL_JPEG,
     REAL_JPEG_2,
     ArchiveTestCase,
+    build_7z,
     build_zip,
     compress_types,
     contents,
@@ -831,6 +834,200 @@ class SourceSeam(ArchiveTestCase):
         self.assertEqual(1, report.converted)
         self.assertTrue(stub.closed)
         self.assertNoTempFiles()
+
+
+class SevenZipListingMetadata(unittest.TestCase):
+    """`7z`'s mode string maps to the Unix `st_mode` a ZIP entry carries."""
+
+    def test_the_mode_string_maps_to_the_unix_st_mode(self):
+        cases = {
+            "-rw-r--r--": 0o100644,
+            "-rwxr-xr-x": 0o100755,
+            "-rw-r-----": 0o100640,
+            "drwxr-xr-x": 0o40755,
+            "lrwxrwxrwx": 0o120777,
+            "-rwsr-xr-x": 0o104755,
+            "-rwSr--r--": 0o104644,
+            "-rw-rw-rwt": 0o101667,
+        }
+        for mode, expected in cases.items():
+            with self.subTest(mode=mode):
+                self.assertEqual(expected, archive._parse_mode(mode))
+
+    def test_a_mode_that_is_not_a_mode_is_none(self):
+        for mode in ("", "not-a-mode", "-rw-r--r-", "?rw-r--r--", "drwxr-xr-x-"):
+            with self.subTest(mode=mode):
+                self.assertIsNone(archive._parse_mode(mode))
+
+
+class SevenZipSource(ArchiveTestCase):
+    """The staged-extraction reader: a CB7 or 7Z converts end to end.
+
+    These sit beside `SourceSeam` because both prove the same seam with a
+    source that is not the ZIP one; the difference is that this one is real.
+    """
+
+    requires_7z = True
+
+    def workdirs(self) -> set:
+        """The reader's own staging directories currently on disk."""
+        return set(
+            glob.glob(os.path.join(tempfile.gettempdir(), "cbx-jackal-7z-*"))
+        )
+
+    def test_a_cb7_converts_end_to_end_in_the_listings_order(self):
+        # Deliberately unsorted: 7z owns the order, and the reader must
+        # reproduce the listing's, not the order handed to the builder.
+        source = build_7z(
+            self.path("book.cb7"),
+            [
+                ("zpage999.jpg", read_bytes(REAL_JPEG)),
+                ("ComicInfo.xml", COMIC_INFO),
+                ("nested/inner.txt", README),
+            ],
+        )
+        report = Converter(self.cjxl).convert(source)
+        out = destination_for(source)
+
+        # 7z sorts by name, so the listing order is the source order.
+        self.assertEqual(
+            ["ComicInfo.xml", "nested/inner.txt", "zpage999.jxl"],
+            names_in_order(out),
+        )
+        written = contents(out)
+        self.assertEqual(COMIC_INFO, written["ComicInfo.xml"])
+        self.assertEqual(README, written["nested/inner.txt"])
+        self.assertEqual(1, report.converted)
+        self.assertEqual(2, report.passed_through)
+        self.assertEqual(0, report.not_converted)
+        self.assertNoTempFiles()
+
+    def test_a_7z_input_is_registered_and_converts_too(self):
+        source = build_7z(
+            self.path("book.7z"),
+            [("page001.jpg", read_bytes(REAL_JPEG))],
+        )
+        report = Converter(self.cjxl).convert(source)
+        out = destination_for(source)
+        self.assertEqual(["page001.jxl"], names_in_order(out))
+        self.assertEqual(1, report.converted)
+        self.assertReconstructsTo(contents(out)["page001.jxl"], read_bytes(REAL_JPEG))
+
+    def test_the_entry_metadata_is_carried_from_the_listing(self):
+        # `7z l -slt` carries a `Modified` and an `Attributes` mode, and a
+        # reader that can supply real values does rather than defaulting.
+        source = build_7z(
+            self.path("meta.cb7"),
+            [("page001.jpg", read_bytes(REAL_JPEG))],
+        )
+        Converter(self.cjxl).convert(source)
+        with zipfile.ZipFile(destination_for(source)) as out:
+            info = out.getinfo("page001.jxl")
+        mode = info.external_attr >> 16
+        self.assertEqual(0o100000, mode & 0o170000, "a regular file's type bits")
+        self.assertNotEqual(0, mode & 0o777, "the listing's permissions")
+        self.assertEqual(3, info.create_system)
+        self.assertNotEqual(
+            archive.DEFAULT_ENTRY_TEMPLATE.date_time,
+            info.date_time,
+            "the listing's Modified should replace the fixed default",
+        )
+
+    def test_a_symlink_entry_is_refused_and_never_materialised(self):
+        if not hasattr(os, "symlink"):
+            self.skipTest("this platform cannot create symlinks")
+        source = build_7z(
+            self.path("link.cb7"),
+            [("page001.jpg", read_bytes(REAL_JPEG))],
+            symlink=("link.jpg", "page001.jpg"),
+        )
+        before = self.workdirs()
+        with self.assertRaises(ArchiveError) as caught:
+            Converter(self.cjxl).convert(source)
+        self.assertIn("link.jpg", str(caught.exception))
+        self.assertFalse(os.path.exists(destination_for(source)))
+        self.assertEqual(before, self.workdirs())
+
+    def test_no_temp_directory_survives_a_failed_listing(self):
+        source = self.path("broken.cb7")
+        with open(source, "wb") as handle:
+            handle.write(b"this is not a 7z archive")
+        before = self.workdirs()
+        with self.assertRaises(ArchiveError) as caught:
+            Converter(self.cjxl).convert(source)
+        self.assertIn("cannot read", str(caught.exception))
+        self.assertFalse(os.path.exists(destination_for(source)))
+        self.assertEqual(before, self.workdirs())
+
+    def test_no_temp_directory_survives_a_failed_extraction(self):
+        # The matrix's "fails to extract" row, which the listing-failure case
+        # above does not reach: the header stays readable so `7z l` succeeds,
+        # and the corrupted data makes `7z x` the step that fails.
+        source = build_7z(
+            self.path("crc.cb7"),
+            [("page.bin", os.urandom(20000)), ("ComicInfo.xml", COMIC_INFO)],
+        )
+        damaged = bytearray(read_bytes(source))
+        for offset in (len(damaged) // 3, len(damaged) // 2):
+            damaged[offset] ^= 0xFF
+        with open(source, "wb") as handle:
+            handle.write(bytes(damaged))
+        before = self.workdirs()
+        with self.assertRaises(ArchiveError) as caught:
+            Converter(self.cjxl).convert(source)
+        self.assertIn("cannot read", str(caught.exception))
+        self.assertFalse(os.path.exists(destination_for(source)))
+        self.assertEqual(before, self.workdirs())
+
+    def test_a_directory_entry_stays_a_directory(self):
+        # `7z l` lists a directory with no trailing slash; the reader restores
+        # one, so the gate sees what the ZIP path would have shown it and the
+        # output keeps a directory rather than a zero-byte file of that name.
+        directory = self.make_dir("stage")
+        os.mkdir(os.path.join(directory, "emptydir"))
+        with open(os.path.join(directory, "f.txt"), "wb") as handle:
+            handle.write(README)
+        source = self.path("dirs.cb7")
+        subprocess.run(
+            ["7z", "a", "-t7z", source, "emptydir", "f.txt"],
+            cwd=directory,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+        )
+        Converter(self.cjxl).convert(source)
+        with zipfile.ZipFile(destination_for(source)) as out:
+            self.assertTrue(out.getinfo("emptydir/").is_dir())
+            self.assertFalse(out.getinfo("f.txt").is_dir())
+
+
+class SevenZipPreflight(ArchiveTestCase):
+    """A `.cb7` with `7z` absent is refused before anything is opened."""
+
+    def test_absent_7z_exits_two_naming_the_tool(self):
+        source = self.path("book.cb7")
+        with open(source, "wb") as handle:
+            handle.write(b"irrelevant: the suffix decides")
+
+        real_which = shutil.which
+        shutil.which = lambda name, *a, **k: (
+            None if name == "7z" else real_which(name, *a, **k)
+        )
+        self.addCleanup(setattr, shutil, "which", real_which)
+
+        opened = []
+        real_open = archive.open_source
+        archive.open_source = lambda path: opened.append(path) or real_open(path)
+        self.addCleanup(setattr, archive, "open_source", real_open)
+
+        code, out, err = self.capture([source])
+
+        self.assertEqual(cli.EXIT_ENVIRONMENT, code)
+        self.assertIn("7z", err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual([], opened, "an archive was opened without 7z")
+        self.assertFalse(os.path.exists(destination_for(source)))
 
 
 class MissingDependency(ArchiveTestCase):
@@ -1745,14 +1942,19 @@ class MultiplePaths(ArchiveTestCase):
 class ArchiveSuffixes(unittest.TestCase):
     """`discover`'s vocabulary, decided from names alone.
 
-    Three of these four names were reachable only indirectly, through `expand`.
+    Most of these names are reachable only indirectly, through `expand`.
     A regression to case-sensitive matching would drop every uppercase archive
     from every scan, and the suite would stay green -- so they are pinned here,
     directly, rather than left to whatever a scan happens to cover.
     """
 
-    def test_archive_suffixes_are_cbz_and_zip(self):
-        self.assertEqual((".cbz", ".zip"), discover.ARCHIVE_SUFFIXES)
+    def test_archive_suffixes_are_every_container_with_a_reader(self):
+        # Extended by the archive-containers epic: a suffix is an input exactly
+        # when `SOURCE_READERS` claims it, and these two maps are extended
+        # together. `.rar` is deliberately absent until its entry registers it.
+        self.assertEqual(
+            (".cbz", ".zip", ".cb7", ".7z"), discover.ARCHIVE_SUFFIXES
+        )
 
     def test_output_suffix_is_fixed_at_jxl_cbz(self):
         self.assertEqual(".jxl.cbz", discover.OUTPUT_SUFFIX)

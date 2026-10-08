@@ -14,6 +14,9 @@ measured under 1% gain while costing real CPU on every page.
 from __future__ import annotations
 
 import os
+import re
+import shutil
+import subprocess
 import tempfile
 import unicodedata
 import zipfile
@@ -278,13 +281,296 @@ class ZipSource:
         return info
 
 
+#: The external archiver that reads CB7 and 7Z. Never bundled; see `preflight`.
+SEVENZIP = "7z"
+
+#: The staging directory a `SevenZipSource` owns. Named apart from `encode.run`'s
+#: per-page directory so a leak is attributable to the reader that caused it.
+SEVENZIP_WORKDIR_PREFIX = "cbx-jackal-7z-"
+
+#: The file-type bits of a POSIX `st_mode`, keyed by the first character of an
+#: `ls -l` mode string. Spelled numerically rather than through `stat.S_IF*`,
+#: because `stat` omits a few of these on Windows and the reader runs there too.
+_MODE_TYPES = {
+    "-": 0o100000,
+    "d": 0o040000,
+    "l": 0o120000,
+    "b": 0o060000,
+    "c": 0o020000,
+    "p": 0o010000,
+    "s": 0o140000,
+}
+
+#: The type mask, and the two kinds a staged extraction may materialise. Every
+#: other kind -- link, device, fifo, socket -- is refused before extraction.
+_MODE_TYPE_MASK = 0o170000
+_REGULAR_OR_DIRECTORY = (0o100000, 0o040000)
+
+
+@dataclass(frozen=True)
+class _SevenZipEntry:
+    """One `7z l -slt` block: a name plus what the output template needs."""
+
+    name: str
+    is_directory: bool
+    date_time: tuple | None
+    mode: int | None
+
+
+def _parse_mode(mode: str) -> int | None:
+    """Octal `st_mode` from a 10-character `ls -l` mode string, or None."""
+    if len(mode) != 10:
+        return None
+    base = _MODE_TYPES.get(mode[0])
+    if base is None:
+        return None
+    value = base
+    for who in range(3):
+        digit = 0
+        for position, char in enumerate(mode[1 + who * 3 : 4 + who * 3]):
+            bit = 1 << (2 - position)
+            if char in "rwx":
+                digit |= bit
+            elif char == "s":
+                digit |= bit
+                value |= 0o4000 if who == 0 else 0o2000
+            elif char == "S":
+                value |= 0o4000 if who == 0 else 0o2000
+            elif char == "t":
+                digit |= bit
+                value |= 0o1000
+            elif char == "T":
+                value |= 0o1000
+            elif char != "-":
+                return None
+        value |= digit << (3 * (2 - who))
+    return value
+
+
+def _mode_token(attributes: str) -> str | None:
+    """The `ls -l` mode word in an `Attributes` value, or None.
+
+    `7z` prints `Attributes = A -rw-r--r--` on POSIX and a bare flag word on a
+    filesystem with no mode; only the ten-character word carries anything.
+    """
+    for token in attributes.split():
+        if len(token) == 10 and token[0] in _MODE_TYPES:
+            return token
+    return None
+
+
+def _parse_modified(value: str) -> tuple | None:
+    """`(Y, M, D, h, m, s)` from `7z`'s `Modified` stamp, or None."""
+    match = re.match(r"(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})", value)
+    if match is None:
+        return None
+    return tuple(int(part) for part in match.groups())
+
+
+def _sevenzip_entry(block: "dict[str, str]") -> _SevenZipEntry:
+    """One parsed block, or None-worthy defaults where a field is absent.
+
+    A directory's `Path` carries no trailing slash, unlike a ZIP's, and
+    `classify` decides from the name alone. So the slash is restored here: a
+    directory entry reaches the gate the way the ZIP path presents one, and the
+    output keeps a directory where a directory was, instead of a zero-byte file.
+    """
+    mode_token = _mode_token(block.get("Attributes", ""))
+    mode = _parse_mode(mode_token) if mode_token else None
+    is_directory = mode_token is not None and mode_token[0] == "d"
+    name = block["Path"]
+    if is_directory and not name.endswith("/"):
+        name += "/"
+    return _SevenZipEntry(
+        name=name,
+        is_directory=is_directory,
+        date_time=_parse_modified(block.get("Modified", "")),
+        mode=mode,
+    )
+
+
+def _parse_sevenzip_listing(text: str) -> list[_SevenZipEntry]:
+    """The entry blocks of `7z l -slt`, in the order `7z` printed them.
+
+    That order is the archive's stored order; nothing here sorts or walks. The
+    archive's own header is a block too, but it carries `Physical Size` and
+    `Headers Size` rather than a plain `Size`, so requiring `Path` and `Size`
+    skips it without depending on the separator line.
+    """
+    entries: list[_SevenZipEntry] = []
+    block: dict[str, str] = {}
+
+    def flush() -> None:
+        if "Path" in block and "Size" in block:
+            entries.append(_sevenzip_entry(block))
+
+    for line in text.splitlines():
+        if not line.strip():
+            flush()
+            block = {}
+            continue
+        key, separator, value = line.partition(" = ")
+        if separator:
+            block[key] = value
+    flush()
+    return entries
+
+
+def _sevenzip_diagnostic(completed: subprocess.CompletedProcess) -> str:
+    """One line naming why `7z` failed, preferring its own `ERROR:` line."""
+    text = completed.stderr.decode("utf-8", "replace")
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("ERROR"):
+            return stripped
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-1] if lines else f"7z exited {completed.returncode}"
+
+
+def _run_sevenzip(arguments: list[str], path: str) -> subprocess.CompletedProcess:
+    """Run `7z` non-interactively, turning a missing tool into an `ArchiveError`.
+
+    stdin is closed, so `7z` can never block an unattended run on a prompt.
+    """
+    sevenzip = shutil.which(SEVENZIP)
+    if sevenzip is None:
+        raise ArchiveError(f"cannot read {path}: {SEVENZIP} was not found on PATH")
+    try:
+        return subprocess.run(
+            [sevenzip, *arguments],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise ArchiveError(f"cannot read {path}: {exc}") from exc
+
+
+class SevenZipSource:
+    """The CB7/7Z reader: a staged extraction behind the same seam as ZIP.
+
+    `7z l -slt` supplies the entry order and each entry's metadata *before* any
+    extraction, so nothing walks the extracted tree. The listing is read first
+    so a link or device entry is refused before `7z x` could materialise it.
+    Extraction is one `7z x` into a temp directory this reader owns; `close`
+    removes it on every exit path `Converter.convert` takes.
+    """
+
+    def __init__(self, path: str) -> None:
+        self._workdir = tempfile.mkdtemp(prefix=SEVENZIP_WORKDIR_PREFIX)
+        try:
+            listing = _run_sevenzip(["l", "-slt", path], path)
+            if listing.returncode != 0:
+                raise ArchiveError(
+                    f"cannot read {path}: {_sevenzip_diagnostic(listing)}"
+                )
+            self._entries = _parse_sevenzip_listing(
+                listing.stdout.decode("utf-8", "replace")
+            )
+            self._refuse_links(path)
+            self._by_name = {entry.name: entry for entry in self._entries}
+            self._extract(path)
+        except BaseException:
+            # Every exit path, including a failure while listing, removes the
+            # staging directory this reader created.
+            self.close()
+            raise
+
+    def _refuse_links(self, path: str) -> None:
+        """Refuse the whole source before `7z x` if any entry is not a file.
+
+        Extraction is all-or-nothing into one tree, so a link cannot be skipped
+        while the rest is served; the alternative to refusing is materialising
+        it, which contract 1.6 forbids. A hard link shows up as a regular file
+        in the listing, so only a typed link or device is caught here.
+        """
+        for entry in self._entries:
+            if entry.mode is None:
+                continue
+            if (entry.mode & _MODE_TYPE_MASK) not in _REGULAR_OR_DIRECTORY:
+                raise ArchiveError(
+                    f"cannot read {path}: refusing to materialise {entry.name!r}, "
+                    f"which is a link or a device, not a regular file"
+                )
+
+    def _extract(self, path: str) -> None:
+        extraction = _run_sevenzip(["x", "-y", f"-o{self._workdir}", path], path)
+        if extraction.returncode != 0:
+            raise ArchiveError(
+                f"cannot read {path}: {_sevenzip_diagnostic(extraction)}"
+            )
+
+    def names_in_order(self) -> list[str]:
+        """Source entries in `7z l -slt`'s order, verbatim."""
+        return [entry.name for entry in self._entries]
+
+    def read(self, name: str) -> bytes:
+        """Read one extracted entry's full contents.
+
+        A directory entry has no bytes of its own, so it reads as empty, the
+        same answer `zipfile` gives for a directory member.
+        """
+        entry = self._entry(name)
+        target = os.path.join(self._workdir, name)
+        if entry.is_directory or os.path.isdir(target):
+            return b""
+        try:
+            with open(target, "rb") as handle:
+                return handle.read()
+        except OSError as exc:
+            raise ArchiveError(f"cannot read {name}: {exc}") from exc
+
+    def template_for(self, name: str) -> EntryTemplate | None:
+        """The entry's own timestamp and mode, carried to the output.
+
+        Returns None only when the listing carried neither, so the documented
+        default applies: a reader that can supply real values does. The mode is
+        a Unix `st_mode`, so it lands in `external_attr` as `mode << 16` with a
+        Unix `create_system`, exactly the shape a ZIP entry carries it in.
+        """
+        entry = self._entry(name)
+        if entry.date_time is None and entry.mode is None:
+            return None
+        return EntryTemplate(
+            date_time=entry.date_time or DEFAULT_ENTRY_TEMPLATE.date_time,
+            external_attr=(entry.mode << 16) if entry.mode is not None else 0,
+            create_system=3 if entry.mode is not None else 0,
+        )
+
+    def close(self) -> None:
+        """Remove the staging directory; safe to call more than once."""
+        shutil.rmtree(self._workdir, ignore_errors=True)
+
+    def _entry(self, name: str) -> _SevenZipEntry:
+        entry = self._by_name.get(name)
+        if entry is None:
+            # Unreachable through `convert`, which only feeds back the names
+            # the source itself supplied, but the seam is a public shape and
+            # fails loudly here rather than by `None` dereference.
+            raise ArchiveError(f"cannot read {name}: not in the archive")
+        return entry
+
+
 #: Readers by recognised input suffix, lowercase. This map and
 #: `discover.ARCHIVE_SUFFIXES` are extended together: a suffix is an input
 #: exactly when a reader is registered for it here.
 SOURCE_READERS: "dict[str, Callable[[str], EntrySource]]" = {
     ".cbz": ZipSource,
     ".zip": ZipSource,
+    ".cb7": SevenZipSource,
+    ".7z": SevenZipSource,
 }
+
+
+def requires_sevenzip(path: str) -> bool:
+    """Whether opening `path` will need `7z` on PATH.
+
+    Read off the registry rather than a second suffix list, so registering a
+    reader is the only edit a new container needs. A suffix no reader claims
+    needs no tool here: `open_source` refuses it as unreadable before any tool
+    is required.
+    """
+    return SOURCE_READERS.get(os.path.splitext(path)[1].lower()) is SevenZipSource
 
 
 def open_source(path: str) -> EntrySource:
@@ -302,9 +588,27 @@ def open_source(path: str) -> EntrySource:
     return reader(path)
 
 
+#: The years a ZIP's DOS date can carry: the field is seven bits from 1980.
+_ZIP_MIN_YEAR, _ZIP_MAX_YEAR = 1980, 2107
+
+
+def _zip_date_time(date_time: tuple) -> tuple:
+    """A timestamp ZIP can store, or the documented default when it cannot.
+
+    `zipfile` raises below 1980 and overflows its struct above 2107, and a
+    source's stamp is not something this tool can vouch for -- `7z` stores a
+    1970 epoch for a file with no usable mtime, and a crafted archive can carry
+    anything. A traceback is not the answer; the default is, which is exactly
+    what a source with no timestamp gets.
+    """
+    if len(date_time) != 6 or not _ZIP_MIN_YEAR <= date_time[0] <= _ZIP_MAX_YEAR:
+        return DEFAULT_ENTRY_TEMPLATE.date_time
+    return date_time
+
+
 def _stored_info(plan: OutputPlan, template: EntryTemplate) -> zipfile.ZipInfo:
     """A fresh ZipInfo for the output, preserving name, timestamp and attrs."""
-    info = zipfile.ZipInfo(plan.output_name, date_time=template.date_time)
+    info = zipfile.ZipInfo(plan.output_name, date_time=_zip_date_time(template.date_time))
     info.compress_type = zipfile.ZIP_STORED
     info.external_attr = template.external_attr
     info.internal_attr = template.internal_attr

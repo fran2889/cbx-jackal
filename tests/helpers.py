@@ -55,6 +55,64 @@ def build_zip(
     return path
 
 
+def build_7z(
+    path: str,
+    entries,
+    *,
+    solid: bool = False,
+    password: str | None = None,
+    symlink=None,
+) -> str:
+    """Write a 7z or CB7 archive holding `entries`. `entries` is (name, bytes).
+
+    Shells out to `7z`, which owns the stored order: it sorts entries, so the
+    order a reader must reproduce is `7z`'s listing order, not the order given
+    here. Timestamps are not pinned -- the reader takes them from the listing.
+
+    `symlink` is an optional `(name, target)` pair stored with `-snl`, so a
+    source holding a link entry can be built without materialising one outside
+    the archive.
+    """
+    sevenzip = shutil.which("7z")
+    if sevenzip is None:
+        raise unittest.SkipTest("7z is not on PATH")
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="cbx-jackal-7z-build-") as staging:
+        names = []
+        for name, data in entries:
+            target = os.path.join(staging, name)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "wb") as handle:
+                handle.write(data)
+            names.append(name)
+        if symlink is not None:
+            link_name, link_target = symlink
+            os.symlink(link_target, os.path.join(staging, link_name))
+            names.append(link_name)
+
+        command = [sevenzip, "a", "-t7z"]
+        if solid:
+            command.append("-ms=on")
+        if password is not None:
+            command.append(f"-p{password}")
+        if symlink is not None:
+            command.append("-snl")
+        command += [path, *names]
+        completed = subprocess.run(
+            command,
+            cwd=staging,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if completed.returncode != 0:
+            raise AssertionError(
+                f"7z could not build {path}: "
+                f"{completed.stderr.decode('utf-8', 'replace')}"
+            )
+    return path
+
+
 def names_in_order(path: str) -> list[str]:
     with zipfile.ZipFile(path, "r") as archive:
         return [info.filename for info in archive.infolist()]
@@ -92,6 +150,9 @@ class ArchiveTestCase(unittest.TestCase):
     """Base class giving each test its own scratch directory."""
 
     requires_cjxl = True
+    #: Set on a class whose tests need the `7z` archiver, so it skips cleanly
+    #: where that tool is absent -- the same shape `requires_cjxl` already uses.
+    requires_7z = False
 
     #: Absolute path to cjxl. Any class that did not set requires_cjxl =
     #: False has skipped by the time any test body runs, so this is always a
@@ -105,6 +166,8 @@ class ArchiveTestCase(unittest.TestCase):
         if cls.requires_cjxl and resolved is None:
             raise unittest.SkipTest("cjxl is not on PATH")
         cls.cjxl = resolved or ""
+        if cls.requires_7z and shutil.which(preflight.SEVENZIP) is None:
+            raise unittest.SkipTest("7z is not on PATH")
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="cbx-jackal-test-")

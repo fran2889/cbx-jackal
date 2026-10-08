@@ -11,7 +11,7 @@ import argparse
 import sys
 
 from . import __version__, discover, preflight
-from .archive import ArchiveError, Converter, OutputExistsError
+from .archive import ArchiveError, Converter, OutputExistsError, requires_sevenzip
 from .encode import TOOL
 
 EXIT_OK = 0
@@ -24,7 +24,8 @@ EPILOG = """\
 exit codes:
   0  every JPEG page converted (pass-through entries do not affect this)
   1  at least one JPEG page failed to convert, or an archive was unreadable
-  2  usage error, missing cjxl, or the output already exists without --force
+  2  usage error, a missing tool (cjxl always, 7z when an input needs it), or
+     the output already exists without --force
 
 A path may be an archive, a directory, or a wildcard pattern such as
 'lib/*.cbz'. A directory is scanned for archives in sorted order and each
@@ -36,8 +37,8 @@ expand it before this tool sees it.
 
 The output is always a new file named <input>.<format>.cbz beside the input,
 where <format> is what --format names -- .cbz never varies with the input. The
-input is never modified. Requires cjxl from the libjxl tools package; see
-README.md -> Installing cjxl.
+input is never modified. Requires cjxl from the libjxl tools package, and 7z as
+well when an input is a CB7 or 7Z rather than a CBZ or ZIP; see README.md.
 """
 
 
@@ -54,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "paths",
         nargs="+",
-        metavar="CBZ|DIR|PATTERN",
+        metavar="ARCHIVE|DIR|PATTERN",
         help=(
             "one or more comic archives to convert, directories to scan for them, "
             "or wildcard patterns such as 'lib/*.cbz'. Directories are not "
@@ -167,6 +168,17 @@ def main(argv: list[str] | None = None) -> int:
     # rather than 300 of them, and before the loop, so the loop keeps its shape
     # and each expanded path keeps its own report and error handling.
     paths = discover.expand(args.paths, recursive=args.recursive)
+
+    # CAP-5, the input-driven severity: `7z` is needed only by an input whose
+    # reader shells out to it, and only `expand` knows which those are. Checked
+    # after the scan and before the loop, so a missing `7z` is one message and
+    # nothing is opened. Entry 3 generalises this to N tools with per-input
+    # refusal; here a missing `7z` stops the run before anything opens.
+    if any(requires_sevenzip(path) for path in paths):
+        sevenzip, error = preflight.check_sevenzip()
+        if sevenzip is None:
+            print(f"cbx-jackal: {error}", file=sys.stderr)
+            return EXIT_ENVIRONMENT
 
     converter = Converter(
         cjxl, quality=quality, strict=args.strict, page_format=page_format
