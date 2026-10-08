@@ -48,6 +48,7 @@ from helpers import (  # noqa: E402
     names_in_order,
     read_bytes,
     rich_cb7,
+    sevenzip_entry_names,
     sevenzip_listing,
     solid_cb7,
 )
@@ -1064,12 +1065,43 @@ class GeneratedFixtures(ArchiveTestCase):
                 "extras/note.txt",
                 "page001.jpg",
             ],
-            [
-                line.split(" = ", 1)[1]
-                for line in sevenzip_listing(source).splitlines()
-                if line.startswith("Path = ") and line != f"Path = {source}"
-            ],
+            sevenzip_entry_names(source),
         )
+
+
+class SolidArchive(ArchiveTestCase):
+    """A solid source converts byte-exact, which is why the reader stages one
+    extraction: per-member extraction would decompress the block every time."""
+
+    requires_7z = True
+
+    def test_a_solid_archive_converts_with_its_entries_byte_exact(self):
+        source = solid_cb7(self.path("solid.cb7"))
+        # The premise, not just the fixture's name: without this the test would
+        # pass against a plain archive and prove nothing about the solid case.
+        self.assertIn("Solid = +", sevenzip_listing(source))
+
+        report = Converter(self.cjxl).convert(source)
+        out = destination_for(source)
+        self.assertEqual(
+            ["ComicInfo.xml", "page001.jpg", "page002.jpg"],
+            sevenzip_entry_names(source),
+        )
+        self.assertEqual(3, report.total)
+        self.assertEqual(2, report.converted)
+        self.assertEqual(1, report.passed_through)
+
+        written = contents(out)
+        # The untouched entry is byte-identical, and the pages are in the
+        # source's order: transcode changes the name, nothing changes position.
+        self.assertEqual(COMIC_INFO, written["ComicInfo.xml"])
+        self.assertEqual(
+            ["ComicInfo.xml", "page001.jxl", "page002.jxl"], names_in_order(out)
+        )
+        # Each page is its own, not merely present: a read that handed back the
+        # wrong member would keep the names and change the content.
+        self.assertReconstructsTo(written["page001.jxl"], read_bytes(REAL_JPEG))
+        self.assertReconstructsTo(written["page002.jxl"], read_bytes(REAL_JPEG_2))
 
 
 class SevenZipPreflight(ArchiveTestCase):

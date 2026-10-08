@@ -65,7 +65,7 @@ def build_7z(
     path: str,
     entries,
     *,
-    solid: bool = False,
+    solid: bool = True,
     password: str | None = None,
     symlink=None,
 ) -> str:
@@ -111,8 +111,11 @@ def build_7z(
             names.append(link_name)
 
         command = [sevenzip, "a", "-t7z"]
-        if solid:
-            command.append("-ms=on")
+        # `7z`'s own default is solid, so `-ms=on` would be a no-op and the flag
+        # would mean nothing. Only `-ms=off` changes anything, so that is what a
+        # non-solid request asks for.
+        if not solid:
+            command.append("-ms=off")
         if password is not None:
             command.append(f"-p{password}")
         if symlink is not None:
@@ -193,6 +196,20 @@ def sevenzip_listing(path: str) -> str:
         stderr=subprocess.PIPE,
     )
     return completed.stdout.decode("utf-8", "replace")
+
+
+def sevenzip_entry_names(path: str) -> list[str]:
+    """The entry names `7z l -slt` lists for `path`, in its order.
+
+    The archive's own path is the first block and is not an entry, so it is
+    dropped. This is the order a reader has to reproduce, and the only place the
+    listing's shape is parsed.
+    """
+    return [
+        line.split(" = ", 1)[1]
+        for line in sevenzip_listing(path).splitlines()
+        if line.startswith("Path = ") and line != f"Path = {path}"
+    ]
 
 
 def names_in_order(path: str) -> list[str]:
