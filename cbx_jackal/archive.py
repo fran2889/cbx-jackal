@@ -23,7 +23,7 @@ import zipfile
 from dataclasses import dataclass
 from typing import Callable, Protocol
 
-from . import encode
+from . import encode, preflight
 from .discover import DEFAULT_FORMAT, output_suffix
 from .report import CONVERTED, NOT_CONVERTED, PASSED_THROUGH, EntryOutcome, Report
 
@@ -281,9 +281,6 @@ class ZipSource:
         return info
 
 
-#: The external archiver that reads CB7 and 7Z. Never bundled; see `preflight`.
-SEVENZIP = "7z"
-
 #: The staging directory a `SevenZipSource` owns. Named apart from `encode.run`'s
 #: per-page directory so a leak is attributable to the reader that caused it.
 SEVENZIP_WORKDIR_PREFIX = "cbx-jackal-7z-"
@@ -437,9 +434,9 @@ def _run_sevenzip(arguments: list[str], path: str) -> subprocess.CompletedProces
 
     stdin is closed, so `7z` can never block an unattended run on a prompt.
     """
-    sevenzip = shutil.which(SEVENZIP)
+    sevenzip = shutil.which(preflight.SEVENZIP)
     if sevenzip is None:
-        raise ArchiveError(f"cannot read {path}: {SEVENZIP} was not found on PATH")
+        raise ArchiveError(f"cannot read {path}: {preflight.SEVENZIP} was not found on PATH")
     try:
         return subprocess.run(
             [sevenzip, *arguments],

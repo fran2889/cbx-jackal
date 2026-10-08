@@ -1297,36 +1297,35 @@ class MissingDependency(ArchiveTestCase):
     requires_cjxl = False
 
     def test_message_names_the_tool(self):
-        message = preflight.missing_tool_message()
+        message = preflight.missing_message([preflight.TOOLS[preflight.TOOL]])
         self.assertIn("cjxl", message)
 
     def test_message_points_at_documentation(self):
-        message = preflight.missing_tool_message()
+        message = preflight.missing_message([preflight.TOOLS[preflight.TOOL]])
         self.assertIn("README.md", message)
 
     def test_message_covers_all_three_platforms(self):
-        message = preflight.missing_tool_message().lower()
+        message = preflight.missing_message([preflight.TOOLS[preflight.TOOL]]).lower()
         for platform in ("linux", "mac", "windows"):
             with self.subTest(platform=platform):
                 self.assertIn(platform, message)
 
     def test_message_is_platform_neutral(self):
         # No "command not found", no shell jargon, no traceback.
-        message = preflight.missing_tool_message()
+        message = preflight.missing_message([preflight.TOOLS[preflight.TOOL]])
         self.assertNotIn("Traceback", message)
         self.assertNotIn("command not found", message.lower())
 
-    def test_check_reports_the_resolved_path_when_present(self):
+    def test_find_tool_reports_the_resolved_path_when_present(self):
         if shutil.which("cjxl") is None:
             self.skipTest("cjxl is not on PATH")
-        resolved, error = preflight.check()
-        self.assertIsNone(error)
+        resolved = preflight.find_tool(preflight.TOOL)
+        self.assertIsNotNone(resolved)
         self.assertTrue(os.path.exists(self.require(resolved, "resolved path")))
 
-    def test_check_reports_an_error_when_absent(self):
-        resolved, error = preflight.check("definitely-not-a-real-tool-xyz")
+    def test_find_tool_reports_none_when_absent(self):
+        resolved = preflight.find_tool("definitely-not-a-real-tool-xyz")
         self.assertIsNone(resolved)
-        self.assertIn("definitely-not-a-real-tool-xyz", self.require(error, "error"))
 
     def test_cli_exits_non_zero_and_names_the_tool(self):
         from contextlib import redirect_stderr, redirect_stdout
