@@ -1003,7 +1003,7 @@ class SevenZipSource(ArchiveTestCase):
 
 
 class SevenZipPreflight(ArchiveTestCase):
-    """A `.cb7` with `7z` absent is refused before anything is opened."""
+    """`7z` absent refuses only the inputs that need it; the rest still convert."""
 
     def test_absent_7z_exits_two_naming_the_tool(self):
         source = self.path("book.cb7")
@@ -1028,6 +1028,66 @@ class SevenZipPreflight(ArchiveTestCase):
         self.assertNotIn("Traceback", err)
         self.assertEqual([], opened, "an archive was opened without 7z")
         self.assertFalse(os.path.exists(destination_for(source)))
+
+    def _hide_7z(self) -> list:
+        """Hide `7z` and record every tool name looked up while it is hidden."""
+        real_which = shutil.which
+        queried = []
+
+        def which(name, *args, **kwargs):
+            queried.append(name)
+            if name == "7z":
+                return None
+            return real_which(name, *args, **kwargs)
+
+        shutil.which = which
+        self.addCleanup(setattr, shutil, "which", real_which)
+        return queried
+
+    def _spy_open(self) -> list:
+        """Record every archive path the converter is asked to open."""
+        opened = []
+        real_open = archive.open_source
+        archive.open_source = lambda path: opened.append(path) or real_open(path)
+        self.addCleanup(setattr, archive, "open_source", real_open)
+        return opened
+
+    def test_a_cb7_beside_a_cbz_converts_the_cbz_and_refuses_the_cb7(self):
+        # The whole point of the input-driven severity: a library holding one
+        # CB7 beside forty CBZs must not convert nothing. Only the CB7 is
+        # refused, the CBZ still converts, and the run exits 2.
+        cbz = self.make_archive(self.tmp, "book.cbz")
+        cb7 = self.path("annual.cb7")
+        with open(cb7, "wb") as handle:
+            handle.write(b"irrelevant: the suffix decides")
+
+        self._hide_7z()
+        opened = self._spy_open()
+
+        code, out, err = self.capture([cbz, cb7])
+
+        self.assertEqual(cli.EXIT_ENVIRONMENT, code)
+        self.assertEqual(1, err.count("7z was not found on PATH"), err)
+        self.assertNotIn("Traceback", err)
+        self.assertTrue(os.path.exists(destination_for(cbz)))
+        self.assertFalse(os.path.exists(destination_for(cb7)))
+        self.assertEqual([cbz], opened, "only the CBZ may be opened")
+        self.assertIn(cb7, err)
+
+    def test_an_all_cbz_list_never_looks_for_7z(self):
+        # The counterpart: a run with no non-ZIP input never needs the tool, so
+        # it must not check for it at all -- a lookup here would be a promise to
+        # a user with no CB7s that their run depends on an archiver it does not.
+        first = self.make_archive(self.tmp, "one.cbz")
+        second = self.make_archive(self.tmp, "two.cbz")
+        queried = self._hide_7z()
+
+        code, out, err = self.capture([first, second])
+
+        self.assertEqual(0, code, err)
+        self.assertNotIn("7z", queried)
+        self.assertTrue(os.path.exists(destination_for(first)))
+        self.assertTrue(os.path.exists(destination_for(second)))
 
 
 class MissingDependency(ArchiveTestCase):
@@ -1123,6 +1183,26 @@ class MissingDependency(ArchiveTestCase):
             self.assertFalse(
                 os.path.exists(os.path.join(lib, f"issue{index:02d}.jxl.cbz"))
             )
+
+    def test_both_tools_absent_names_only_cjxl(self):
+        # The run stops before expansion, so `7z` is not yet known to be needed
+        # and must not be named: naming it would promise a check that never ran.
+        cb7 = self.path("book.cb7")
+        with open(cb7, "wb") as handle:
+            handle.write(b"irrelevant: the suffix decides")
+
+        real_which = shutil.which
+        shutil.which = lambda name, *a, **k: (
+            None if name in ("cjxl", "7z") else real_which(name, *a, **k)
+        )
+        self.addCleanup(setattr, shutil, "which", real_which)
+
+        code, out, err = self.capture([cb7])
+
+        self.assertEqual(cli.EXIT_ENVIRONMENT, code)
+        self.assertIn("cjxl", err)
+        self.assertNotIn("7z", err)
+        self.assertFalse(os.path.exists(destination_for(cb7)))
 
 
 class CliSurface(ArchiveTestCase):

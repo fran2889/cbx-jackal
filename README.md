@@ -93,7 +93,9 @@ dependency is reported up front rather than discovered 150 pages into a run:
 
 ```
 $ cbx-jackal book.cbz
-cbx-jackal: cjxl was not found on PATH.
+cbx-jackal: missing tools: cjxl
+
+cjxl was not found on PATH.
 ...
 ```
 

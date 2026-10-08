@@ -157,33 +157,57 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         parser.error(str(exc))
 
-    # CAP-5: before opening any archive, so a missing dependency cannot be
-    # discovered partway through a 200-page run.
-    cjxl, error = preflight.check(TOOL)
+    # CAP-5: the stop-severity tools are checked before any archive is opened,
+    # so a missing dependency cannot be discovered partway through a 200-page
+    # run. `missing` reads the registry and `missing_message` names every absent
+    # stop-tool in one message, in severity order.
+    stop_tools = [name for name, tool in preflight.TOOLS.items() if tool.stops_run]
+    absent = preflight.missing(stop_tools)
+    if absent:
+        print(
+            f"cbx-jackal: {preflight.missing_message(absent)}",
+            file=sys.stderr,
+        )
+        return EXIT_ENVIRONMENT
+    cjxl = preflight.find_tool(TOOL)
     if cjxl is None:
-        print(f"cbx-jackal: {error}", file=sys.stderr)
+        # Unreachable: `missing` just proved every stop-tool present. Spelled
+        # out only so the type checker narrows `cjxl` to `str`.
         return EXIT_ENVIRONMENT
 
-    # After the preflight, so a missing cjxl is one message over a 300-file scan
-    # rather than 300 of them, and before the loop, so the loop keeps its shape
-    # and each expanded path keeps its own report and error handling.
+    # After the preflight, so a missing stop-tool is one message over a 300-file
+    # scan rather than 300 of them, and before the loop, so the loop keeps its
+    # shape and each expanded path keeps its own report and error handling.
     paths = discover.expand(args.paths, recursive=args.recursive)
 
-    # CAP-5, the input-driven severity: `7z` is needed only by an input whose
-    # reader shells out to it, and only `expand` knows which those are. Checked
-    # after the scan and before the loop, so a missing `7z` is one message and
-    # nothing is opened. Entry 3 generalises this to N tools with per-input
-    # refusal; here a missing `7z` stops the run before anything opens.
-    if any(requires_sevenzip(path) for path in paths):
-        sevenzip, error = preflight.check_sevenzip()
-        if sevenzip is None:
-            print(f"cbx-jackal: {error}", file=sys.stderr)
-            return EXIT_ENVIRONMENT
+    # CAP-5, the input-driven severity: a tool whose absence refuses only the
+    # inputs that need it, because only `expand` knows which those are. Checked
+    # after the scan, and the run carries on: the inputs that need the tool are
+    # refused with one line each and the rest still convert. Entry 1.11 adds
+    # `magick` by registering it and staging its check the same way.
+    exit_code = EXIT_OK
+    missing_input_tool = False
+    needing_sevenzip = [path for path in paths if requires_sevenzip(path)]
+    if needing_sevenzip:
+        absent = preflight.missing([preflight.SEVENZIP])
+        if absent:
+            print(
+                f"cbx-jackal: {preflight.missing_message(absent)}",
+                file=sys.stderr,
+            )
+            for path in needing_sevenzip:
+                print(
+                    f"cbx-jackal: {path}: {preflight.SEVENZIP} is required to "
+                    f"read this archive; skipping it",
+                    file=sys.stderr,
+                )
+            refused = set(needing_sevenzip)
+            paths = [path for path in paths if path not in refused]
+            missing_input_tool = True
 
     converter = Converter(
         cjxl, quality=quality, strict=args.strict, page_format=page_format
     )
-    exit_code = EXIT_OK
 
     for path in paths:
         try:
@@ -215,6 +239,10 @@ def main(argv: list[str] | None = None) -> int:
         if report.not_converted:
             exit_code = EXIT_FAILED
 
+    # A missing input-driven tool is exit 2 whether the run then aborts or
+    # carries on, so a later page failure does not downgrade it.
+    if missing_input_tool:
+        return EXIT_ENVIRONMENT
     return exit_code
 
 

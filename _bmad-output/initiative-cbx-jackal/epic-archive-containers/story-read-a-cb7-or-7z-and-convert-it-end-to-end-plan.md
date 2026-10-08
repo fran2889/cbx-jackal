@@ -3,7 +3,7 @@ title: 'Read a CB7 or 7Z and convert it end to end'
 type: 'feature'
 ticket: '2'
 created: '2026-10-08'
-status: 'built'
+status: done
 baseline_revision: '5ff1c179d1f72fd5dbdc1b4ac639082fe9279dd3'
 route: 'full'
 route_source: 'auto'
