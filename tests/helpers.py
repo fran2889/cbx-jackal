@@ -24,10 +24,15 @@ FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 REAL_JPEG = os.path.join(FIXTURES, "page001.jpg")
 #: A second real JPEG, for order-preservation tests.
 REAL_JPEG_2 = os.path.join(FIXTURES, "page002.jpg")
+#: A third real JPEG.
+REAL_JPEG_3 = os.path.join(FIXTURES, "page003.jpg")
 #: A truncated JPEG. cjxl exits 1 and writes no output for it.
 CORRUPT_JPEG = os.path.join(FIXTURES, "corrupt.jpg")
 #: A PNG named .jpg -- cjxl sniffs content, so it converts.
 MISNAMED_PNG = os.path.join(FIXTURES, "page003.png")
+#: A committed RAR fixture. 7z cannot create RAR, so this is a binary produced
+#: outside this repository and committed.
+RAR_FIXTURE = os.path.join(FIXTURES, "book.rar")
 
 COMIC_INFO = b'<?xml version="1.0"?><ComicInfo><Pages Count="2"/></ComicInfo>'
 README = b"This is a readme, not a page.\n"

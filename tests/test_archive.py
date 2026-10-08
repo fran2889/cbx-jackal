@@ -36,9 +36,11 @@ from helpers import (  # noqa: E402
     CORRUPT_JPEG,
     FIXTURES,
     MISNAMED_PNG,
+    RAR_FIXTURE,
     README,
     REAL_JPEG,
     REAL_JPEG_2,
+    REAL_JPEG_3,
     ArchiveTestCase,
     build_7z,
     build_zip,
@@ -912,6 +914,25 @@ class SevenZipSource(ArchiveTestCase):
         self.assertEqual(1, report.converted)
         self.assertReconstructsTo(contents(out)["page001.jxl"], read_bytes(REAL_JPEG))
 
+    def test_a_rar_input_is_registered_and_converts_too(self):
+        # RAR is the one container 7z reads but cannot create, so the fixture
+        # is committed rather than built. book.rar holds page001.jpg,
+        # page002.jpg and page003.jpg, in that order.
+        source = RAR_FIXTURE
+        report = Converter(self.cjxl).convert(source)
+        out = destination_for(source)
+        # 7z lists and extracts in name order, so page001, page002, page003
+        self.assertEqual(
+            ["page001.jxl", "page002.jxl", "page003.jxl"],
+            names_in_order(out),
+        )
+        self.assertEqual(3, report.converted)
+        written = contents(out)
+        self.assertReconstructsTo(written["page001.jxl"], read_bytes(REAL_JPEG))
+        self.assertReconstructsTo(written["page002.jxl"], read_bytes(REAL_JPEG_2))
+        self.assertReconstructsTo(written["page003.jxl"], read_bytes(REAL_JPEG_3))
+        self.assertNoTempFiles()
+
     def test_the_entry_metadata_is_carried_from_the_listing(self):
         # `7z l -slt` carries a `Modified` and an `Attributes` mode, and a
         # reader that can supply real values does rather than defaulting.
@@ -1135,6 +1156,51 @@ class TruncatedSource(ArchiveTestCase):
         self.assertTrue(os.path.exists(destination_for(good)))
         self.assertFalse(os.path.exists(destination_for(bad)))
         self.assertIn("bad.cb7", err)
+
+
+class EncryptedSource(ArchiveTestCase):
+    """An encrypted archive is refused by name, and the run carries on."""
+
+    requires_7z = True
+
+    def test_an_encrypted_archive_is_refused_by_name(self):
+        source = encrypted_cb7(self.path("enc.cb7"))
+        code, _, err = self.capture([source])
+        self.assertEqual(cli.EXIT_FAILED, code)
+        self.assertFalse(os.path.exists(destination_for(source)))
+        self.assertIn("encrypted", err.lower())
+        self.assertNotIn("Traceback", err)
+        # The point of the entry: not `7z`'s own unhelpful diagnostic.
+        self.assertNotIn("Break signaled", err)
+
+    def test_a_plain_input_beside_an_encrypted_one_still_converts(self):
+        good = rich_cb7(self.path("good.cb7"))
+        bad = encrypted_cb7(self.path("bad.cb7"))
+        # The encrypted one first, so a run that stopped at the first failure
+        # could not convert the good one.
+        code, _, err = self.capture([bad, good])
+        self.assertEqual(cli.EXIT_FAILED, code)
+        self.assertTrue(os.path.exists(destination_for(good)))
+        self.assertFalse(os.path.exists(destination_for(bad)))
+        self.assertIn("encrypted", err.lower())
+
+    def test_the_run_never_waits_for_input(self):
+        # A live stdin pipe that is never written: the reader passes DEVNULL to
+        # every `7z` call, so a reader that let `7z` prompt would block here
+        # until the timeout rather than returning.
+        source = encrypted_cb7(self.path("enc.cb7"))
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        completed = subprocess.run(
+            [sys.executable, "-m", "cbx_jackal.cli", source],
+            cwd=root,
+            env=dict(os.environ, PYTHONPATH=root),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        self.assertNotEqual(0, completed.returncode)
+        self.assertIn(b"encrypted", completed.stderr.lower())
 
 
 class SevenZipPreflight(ArchiveTestCase):

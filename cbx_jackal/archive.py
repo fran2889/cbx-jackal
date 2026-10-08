@@ -315,6 +315,7 @@ class _SevenZipEntry:
     is_directory: bool
     date_time: tuple | None
     mode: int | None
+    encrypted: bool
 
 
 def _parse_mode(mode: str) -> int | None:
@@ -386,6 +387,10 @@ def _sevenzip_entry(block: "dict[str, str]") -> _SevenZipEntry:
         is_directory=is_directory,
         date_time=_parse_modified(block.get("Modified", "")),
         mode=mode,
+        # `7z` marks an encrypted member in the listing, so the reader knows
+        # before it extracts -- which is where it would otherwise emit its
+        # unhelpful "Break signaled".
+        encrypted=block.get("Encrypted", "").strip() == "+",
     )
 
 
@@ -467,6 +472,7 @@ class SevenZipSource:
             self._entries = _parse_sevenzip_listing(
                 listing.stdout.decode("utf-8", "replace")
             )
+            self._refuse_encrypted(path)
             self._refuse_links(path)
             self._by_name = {entry.name: entry for entry in self._entries}
             self._extract(path)
@@ -475,6 +481,22 @@ class SevenZipSource:
             # staging directory this reader created.
             self.close()
             raise
+
+    def _refuse_encrypted(self, path: str) -> None:
+        """Refuse the whole source, by name, if any entry needs a password.
+
+        Refused from the listing rather than left to extraction, which is where
+        `7z` reports only "Break signaled" -- and refused rather than skipped,
+        because the output is rebuilt from entries that must be read, so there
+        is no pass-through answer. The owner gets a line saying what it is, and
+        every other input in the run still converts.
+        """
+        for entry in self._entries:
+            if entry.encrypted:
+                raise ArchiveError(
+                    f"cannot read {path}: {entry.name!r} is encrypted; "
+                    f"cbx-jackal cannot supply a password"
+                )
 
     def _refuse_links(self, path: str) -> None:
         """Refuse the whole source before `7z x` if any entry is not a file.
@@ -559,6 +581,7 @@ SOURCE_READERS: "dict[str, Callable[[str], EntrySource]]" = {
     ".zip": ZipSource,
     ".cb7": SevenZipSource,
     ".7z": SevenZipSource,
+    ".rar": SevenZipSource,
 }
 
 

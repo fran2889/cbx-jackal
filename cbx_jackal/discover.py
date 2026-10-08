@@ -47,7 +47,7 @@ from typing import Iterator
 
 #: Extensions a scan or a pattern treats as an archive. Case-insensitive,
 #: because comic libraries are full of `.CBZ`.
-ARCHIVE_SUFFIXES = (".cbz", ".zip", ".cb7", ".7z")
+ARCHIVE_SUFFIXES = (".cbz", ".zip", ".cb7", ".7z", ".rar")
 
 #: The container every output is written in, whatever the input was. `book.zip`
 #: becomes `book.jxl.cbz`, never `book.jxl.zip`: once converted, a book is
