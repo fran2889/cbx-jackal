@@ -3,7 +3,7 @@ title: 'Contract: the classification gate, with a stub'
 type: 'feature'
 ticket: '6'
 created: '2026-10-08'
-status: 'built'
+status: done
 baseline_revision: 'd003a7f0dae79fc47e23c291d003340bc4dafbe1'
 route: 'full'
 route_source: 'auto'
