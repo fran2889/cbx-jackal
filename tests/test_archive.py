@@ -19,7 +19,7 @@ import zipfile
 # sys.path, the former does not.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cbx_jackal import cli, discover, encode, preflight  # noqa: E402
+from cbx_jackal import archive, cli, discover, encode, preflight  # noqa: E402
 from cbx_jackal.archive import (
     ArchiveError,
     Converter,
@@ -690,6 +690,146 @@ class ContainerContract(ArchiveTestCase):
             self.path("ft.cbz"), [("a.jpg", read_bytes(CORRUPT_JPEG))]
         )
         Converter(self.cjxl).convert(source)
+        self.assertNoTempFiles()
+
+
+class StubSource:
+    """A source in memory: names and bytes, no filesystem, no archiver.
+
+    The registry maps a suffix to a callable that builds a source from a path,
+    and a stub has nothing to build from one, so the test registers a closure
+    over an instance instead. The path still has to exist on disk, because
+    `convert` measures the source file's size.
+    """
+
+    def __init__(self, entries, templates=None, fail_on=None):
+        # `entries` is the source's own stored order, deliberately unsorted by
+        # callers: nothing may sort it and nothing may walk it.
+        self._entries = list(entries)
+        self._templates = templates or {}
+        self._fail_on = fail_on
+        self.closed = False
+
+    def names_in_order(self):
+        return [name for name, _ in self._entries]
+
+    def read(self, name):
+        if name == self._fail_on:
+            raise ArchiveError(f"cannot read {name}: simulated unreadable entry")
+        for entry_name, data in self._entries:
+            if entry_name == name:
+                return data
+        raise ArchiveError(f"cannot read {name}: not in the archive")
+
+    def template_for(self, name):
+        return self._templates.get(name)
+
+    def close(self):
+        self.closed = True
+
+
+class SourceSeam(ArchiveTestCase):
+    """Entry 6's seam: a source that is not a ZIP converts end to end."""
+
+    def register(self, stub, suffix=".stub"):
+        """One book backed by `stub`, at a real path with that suffix."""
+        original = dict(archive.SOURCE_READERS)
+        archive.SOURCE_READERS[suffix] = lambda path: stub
+
+        def restore():
+            archive.SOURCE_READERS.clear()
+            archive.SOURCE_READERS.update(original)
+
+        self.addCleanup(restore)
+        path = self.path(f"book{suffix}")
+        with open(path, "wb") as handle:
+            handle.write(b"stub: the registry supplies the reader")
+        return path
+
+    def test_a_stub_book_converts_end_to_end_in_the_sources_order(self):
+        # Deliberately unsorted, and the fork is not a page even though its
+        # name says .jpg: the gate decides from the name, and the seam carries
+        # that unchanged. The output order is the input order, not sorted.
+        stub = StubSource(
+            [
+                ("extras/", b""),
+                ("__MACOSX/._page002.jpg", b"\x00\x00applefork"),
+                ("zpage999.jpg", read_bytes(REAL_JPEG)),
+                ("apage001.jpg", read_bytes(REAL_JPEG_2)),
+                ("ComicInfo.xml", COMIC_INFO),
+            ]
+        )
+        path = self.register(stub)
+        report = Converter(self.cjxl).convert(path)
+
+        self.assertTrue(stub.closed, "the source was never closed")
+        out = destination_for(path)
+        self.assertEqual(
+            [
+                "extras/",
+                "__MACOSX/._page002.jpg",
+                "zpage999.jxl",
+                "apage001.jxl",
+                "ComicInfo.xml",
+            ],
+            names_in_order(out),
+        )
+        written = contents(out)
+        self.assertEqual(b"\x00\x00applefork", written["__MACOSX/._page002.jpg"])
+        self.assertEqual(COMIC_INFO, written["ComicInfo.xml"])
+        self.assertEqual(2, report.converted)
+        self.assertEqual(3, report.passed_through)
+        self.assertEqual(0, report.not_converted)
+
+    def test_a_container_no_reader_claims_is_refused_before_any_output(self):
+        # `.dat` because no epic will ever register it, and the file holds a
+        # perfectly valid ZIP's bytes on purpose: the refusal is by suffix,
+        # never by content, so a fallback reader that opens it anyway is the
+        # bug this test exists to catch. Nothing about any real archiver is
+        # named.
+        path = self.path("book.dat")
+        build_zip(path, [("readme.txt", README)])
+        with self.assertRaises(ArchiveError) as caught:
+            Converter(self.cjxl).convert(path)
+        self.assertIn("no reader", str(caught.exception))
+        self.assertIn(".dat", str(caught.exception))
+        self.assertFalse(os.path.exists(destination_for(path)))
+        self.assertNoTempFiles()
+
+    def test_a_source_offering_no_template_gets_the_documented_default(self):
+        stub = StubSource([("readme.txt", README)])
+        path = self.register(stub)
+        Converter(self.cjxl).convert(path)
+        with zipfile.ZipFile(destination_for(path)) as out:
+            info = out.getinfo("readme.txt")
+            self.assertEqual(
+                archive.DEFAULT_ENTRY_TEMPLATE.date_time, info.date_time
+            )
+            # `writestr` preserves a nonzero attribute and stamps its own
+            # `0o600 << 16` when the value is 0 -- the same mode every entry
+            # zipfile itself creates carries. Either way the outcome is
+            # fixed, which is the point: nothing is read from the clock.
+            self.assertEqual(0o600 << 16, info.external_attr)
+
+    def test_a_read_failure_names_the_entry_and_writes_nothing(self):
+        stub = StubSource(
+            [("a.jpg", read_bytes(REAL_JPEG)), ("bad.txt", README)],
+            fail_on="bad.txt",
+        )
+        path = self.register(stub)
+        with self.assertRaises(ArchiveError) as caught:
+            Converter(self.cjxl).convert(path)
+        self.assertIn("bad.txt", str(caught.exception))
+        self.assertFalse(os.path.exists(destination_for(path)))
+        self.assertNoTempFiles()
+
+    def test_a_stub_source_survives_a_dry_run(self):
+        stub = StubSource([("a.jpg", read_bytes(REAL_JPEG)), ("readme.txt", README)])
+        path = self.register(stub)
+        report = Converter(self.cjxl).convert(path, dry_run=True)
+        self.assertFalse(os.path.exists(destination_for(path)))
+        self.assertEqual(1, report.converted)
+        self.assertTrue(stub.closed)
         self.assertNoTempFiles()
 
 

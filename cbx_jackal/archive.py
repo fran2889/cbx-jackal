@@ -1,7 +1,7 @@
 """Read a CBZ in stored order, transcode its JPEG pages, write a new CBZ.
 
 Ordering is a correctness property, not cosmetics. Entries are iterated in the
-source ZIP's stored order verbatim -- no natural sort, no renumbering, no repair
+source's stored order verbatim -- no natural sort, no renumbering, no repair
 of archives whose ordering is already wrong. Readers own the sort; this tool never
 silently reorders a book. Because nothing is renumbered, a page that fails and is
 copied through stays at its original index, so the book gets a hole rather than a
@@ -18,6 +18,7 @@ import tempfile
 import unicodedata
 import zipfile
 from dataclasses import dataclass
+from typing import Callable, Protocol
 
 from . import encode
 from .discover import DEFAULT_FORMAT, output_suffix
@@ -161,7 +162,147 @@ def build_plan(names: list[str]) -> list[OutputPlan]:
     return plans
 
 
-def _stored_info(plan: OutputPlan, template: zipfile.ZipInfo) -> zipfile.ZipInfo:
+@dataclass(frozen=True)
+class EntryTemplate:
+    """The per-entry metadata an output entry carries.
+
+    The five fields are the ones a `zipfile.ZipInfo` offers that the output
+    keeps: written timestamp, attributes, and comment. A source that has no
+    notion of one of them supplies the default instead, never a guess.
+    """
+
+    date_time: tuple
+    external_attr: int = 0
+    internal_attr: int = 0
+    create_system: int = 0
+    comment: bytes = b""
+
+
+#: The template a source gets when it offers none of its own. Fixed to the ZIP
+#: epoch rather than read from the clock, so a converted book is byte-identical
+#: across runs and a dry run can be compared against the real one. A reader
+#: that can supply real values does; one that cannot degrades to this, and is
+#: never refused for lacking them.
+DEFAULT_ENTRY_TEMPLATE = EntryTemplate(date_time=(1980, 1, 1, 0, 0, 0))
+
+
+class EntrySource(Protocol):
+    """What any container must offer to be converted.
+
+    Three things, no more: entry names in the order the source stores them,
+    the bytes of one named entry, and an optional per-entry output template.
+    The order is *supplied* -- a reader that staged its extraction to a
+    directory and then walked it would return filesystem order, and the entry
+    count and order guarantee would be unenforceable. A read that fails raises
+    `ArchiveError` naming that entry. `template_for` returning `None` means
+    the source has no notion of metadata and the documented default applies.
+
+    A reader creates regular files only, if it touches the filesystem at all,
+    inside a directory the tool owns, and cleans up on every exit path the
+    way `encode.run` does. An entry that is a link or a device is refused
+    rather than materialised.
+    """
+
+    def names_in_order(self) -> list[str]: ...
+
+    def read(self, name: str) -> bytes: ...
+
+    def template_for(self, name: str) -> EntryTemplate | None: ...
+
+    def close(self) -> None: ...
+
+
+class ZipSource:
+    """The ZIP reader: stored order, bytes by name, metadata from `ZipInfo`."""
+
+    def __init__(self, path: str) -> None:
+        try:
+            self._zip = zipfile.ZipFile(path, "r")
+        except (zipfile.BadZipFile, OSError) as exc:
+            raise ArchiveError(f"cannot read {path}: {exc}") from exc
+        # Duplicate input names always collide as output names, so `build_plan`
+        # refuses them before any read: a dict is faithful here.
+        self._by_name = {info.filename: info for info in self._zip.infolist()}
+
+    def names_in_order(self) -> list[str]:
+        """Source entries in stored order, verbatim."""
+        return [info.filename for info in self._zip.infolist()]
+
+    def read(self, name: str) -> bytes:
+        """Read one entry's full contents.
+
+        A corrupt compressed stream or a bad CRC raises, which aborts the run:
+        an archive we cannot read entries from is not safe to rewrite. So do
+        an encrypted member and an unsupported compression method: both mean
+        the same thing here, and both must arrive as an `ArchiveError` rather
+        than a traceback.
+        """
+        info = self._info(name)
+        chunks = []
+        try:
+            with self._zip.open(info, "r") as handle:
+                while True:
+                    chunk = handle.read(CHUNK)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+        except (RuntimeError, NotImplementedError) as exc:
+            # RuntimeError: encrypted member. NotImplementedError: compression
+            # method this Python cannot decode.
+            raise ArchiveError(
+                f"cannot read {name}: {exc or type(exc).__name__}"
+            ) from exc
+        return b"".join(chunks)
+
+    def template_for(self, name: str) -> EntryTemplate:
+        """The entry's own timestamp and attributes, carried to the output."""
+        info = self._info(name)
+        return EntryTemplate(
+            date_time=info.date_time,
+            external_attr=info.external_attr,
+            internal_attr=info.internal_attr,
+            create_system=info.create_system,
+            comment=info.comment,
+        )
+
+    def close(self) -> None:
+        self._zip.close()
+
+    def _info(self, name: str) -> zipfile.ZipInfo:
+        info = self._by_name.get(name)
+        if info is None:
+            # Unreachable through `convert`, which only feeds back the names
+            # the source itself supplied, but the seam is a public shape and
+            # fails loudly here rather than by `None` dereference.
+            raise ArchiveError(f"cannot read {name}: not in the archive")
+        return info
+
+
+#: Readers by recognised input suffix, lowercase. This map and
+#: `discover.ARCHIVE_SUFFIXES` are extended together: a suffix is an input
+#: exactly when a reader is registered for it here.
+SOURCE_READERS: "dict[str, Callable[[str], EntrySource]]" = {
+    ".cbz": ZipSource,
+    ".zip": ZipSource,
+}
+
+
+def open_source(path: str) -> EntrySource:
+    """Open `path` with the reader its recognised suffix names.
+
+    No fallback and no sniffing: a file whose suffix no reader claims is an
+    unreadable archive, exit 1, the answer it gives today. By-content
+    detection belongs to a reader at open time, which is where the
+    measurement put it.
+    """
+    suffix = os.path.splitext(path)[1].lower()
+    reader = SOURCE_READERS.get(suffix)
+    if reader is None:
+        raise ArchiveError(f"cannot read {path}: no reader for {suffix!r}")
+    return reader(path)
+
+
+def _stored_info(plan: OutputPlan, template: EntryTemplate) -> zipfile.ZipInfo:
     """A fresh ZipInfo for the output, preserving name, timestamp and attrs."""
     info = zipfile.ZipInfo(plan.output_name, date_time=template.date_time)
     info.compress_type = zipfile.ZIP_STORED
@@ -170,37 +311,6 @@ def _stored_info(plan: OutputPlan, template: zipfile.ZipInfo) -> zipfile.ZipInfo
     info.create_system = template.create_system
     info.comment = template.comment
     return info
-
-
-def _entries(source: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
-    """Source entries in stored order, verbatim."""
-    return list(source.infolist())
-
-
-def _read_entry(source: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes:
-    """Read one entry's full contents.
-
-    A corrupt compressed stream or a bad CRC raises, which aborts the run: an
-    archive we cannot read entries from is not safe to rewrite. So do an
-    encrypted member and an unsupported compression method: both mean the same
-    thing here, and both must arrive as an `ArchiveError` rather than a
-    traceback.
-    """
-    chunks = []
-    try:
-        with source.open(info, "r") as handle:
-            while True:
-                chunk = handle.read(CHUNK)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-    except (RuntimeError, NotImplementedError) as exc:
-        # RuntimeError: encrypted member. NotImplementedError: compression
-        # method this Python cannot decode.
-        raise ArchiveError(
-            f"cannot read {info.filename}: {exc or type(exc).__name__}"
-        ) from exc
-    return b"".join(chunks)
 
 
 class Converter:
@@ -252,9 +362,13 @@ class Converter:
             )
 
         try:
-            source = zipfile.ZipFile(path, "r")
-        except (zipfile.BadZipFile, OSError) as exc:
-            raise ArchiveError(f"cannot read {path}: {exc}", report) from exc
+            source = open_source(path)
+        except ArchiveError as exc:
+            # The message, not any report, names the input here: no entry
+            # outcome exists yet, so the CLI prints the bare reason either
+            # way. The report is attached only so an `ArchiveError` out of
+            # `convert` still always carries one, as it did before the seam.
+            raise ArchiveError(str(exc), report) from exc
 
         # Taken after the archive opened, so a missing file is already an
         # ArchiveError above rather than a bare OSError from here.
@@ -264,18 +378,18 @@ class Converter:
         handle = None
         target = None
         try:
-            with source:
-                infos = _entries(source)
-                plans = build_plan([i.filename for i in infos])
+            try:
+                names = source.names_in_order()
+                plans = build_plan(names)
                 if not dry_run:
                     temp_path, handle, target = self._open_temp(destination)
 
                 try:
-                    for info, plan in zip(infos, plans):
+                    for name, plan in zip(names, plans):
                         if target is not None:
-                            self._process(info, plan, source, target, report)
+                            self._process(name, plan, source, target, report)
                         else:
-                            self._process_dry_run(info, plan, source, report)
+                            self._process_dry_run(name, plan, source, report)
                 finally:
                     # ZipFile.close() does not close a handle it did not open,
                     # so the handle is closed here too. Until it is, the ZIP's
@@ -296,6 +410,8 @@ class Converter:
                     self._publish(temp_path, destination)
                     temp_path = None
                     report.output_size_bytes = os.path.getsize(destination)
+            finally:
+                source.close()
 
             return report
         except ArchiveError as exc:
@@ -368,17 +484,18 @@ class Converter:
 
     def _process(
         self,
-        info: zipfile.ZipInfo,
+        name: str,
         plan: OutputPlan,
-        source: zipfile.ZipFile,
+        source: EntrySource,
         target: zipfile.ZipFile,
         report: Report,
     ) -> None:
-        data = _read_entry(source, info)
+        data = source.read(name)
         size = len(data)
+        template = source.template_for(name) or DEFAULT_ENTRY_TEMPLATE
 
         if not plan.transcode:
-            target.writestr(_stored_info(plan, info), data)
+            target.writestr(_stored_info(plan, template), data)
             report.add(
                 EntryOutcome(
                     name=plan.name,
@@ -403,7 +520,7 @@ class Converter:
             # Original bytes, original name, original position. The hole is
             # visible in the archive and again in the exit code.
             passthrough_plan = OutputPlan(plan.name, plan.name, transcode=False)
-            target.writestr(_stored_info(passthrough_plan, info), data)
+            target.writestr(_stored_info(passthrough_plan, template), data)
             report.add(
                 EntryOutcome(
                     name=plan.name,
@@ -415,7 +532,7 @@ class Converter:
             )
             return
 
-        target.writestr(_stored_info(plan, info), result.data)
+        target.writestr(_stored_info(plan, template), result.data)
         report.add(
             EntryOutcome(
                 name=plan.output_name,
@@ -427,9 +544,9 @@ class Converter:
 
     def _process_dry_run(
         self,
-        info: zipfile.ZipInfo,
+        name: str,
         plan: OutputPlan,
-        source: zipfile.ZipFile,
+        source: EntrySource,
         report: Report,
     ) -> None:
         """Classify and measure without writing anything.
@@ -442,7 +559,7 @@ class Converter:
         than estimates, but the bytes land in a per-page temp file that
         `encode.run` removes before returning.
         """
-        data = _read_entry(source, info)
+        data = source.read(name)
         size = len(data)
 
         if not plan.transcode:
