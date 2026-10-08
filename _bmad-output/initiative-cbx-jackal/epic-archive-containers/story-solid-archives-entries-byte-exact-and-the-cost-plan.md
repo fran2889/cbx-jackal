@@ -3,7 +3,7 @@ title: 'Solid archives: entries byte-exact, and the cost'
 type: 'feature'
 ticket: '6'
 created: '2026-10-08'
-status: 'built'
+status: done
 baseline_revision: '4a2661c'
 route: 'oneshot'
 route_source: 'auto'
