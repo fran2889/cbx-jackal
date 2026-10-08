@@ -1,6 +1,6 @@
 ---
 type: story
-title: "RAR: the committed fixture and its conversion"
+title: "RAR: the committed fixture and its conversion with unrar"
 id: 5
 epic: epic-archive-containers
 initative: initiative-cbx-jackal

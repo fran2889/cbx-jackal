@@ -284,6 +284,7 @@ class ZipSource:
 #: The staging directory a `SevenZipSource` owns. Named apart from `encode.run`'s
 #: per-page directory so a leak is attributable to the reader that caused it.
 SEVENZIP_WORKDIR_PREFIX = "cbx-jackal-7z-"
+UNRAR_WORKDIR_PREFIX = "cbx-jackal-unrar-"
 
 #: The file-type bits of a POSIX `st_mode`, keyed by the first character of an
 #: `ls -l` mode string. Spelled numerically rather than through `stat.S_IF*`,
@@ -418,6 +419,115 @@ def _parse_sevenzip_listing(text: str) -> list[_SevenZipEntry]:
     return entries
 
 
+@dataclass(frozen=True)
+class _UnrarEntry:
+    """One `unrar l` block: a name plus what the output template needs."""
+
+    name: str
+    is_directory: bool
+    date_time: tuple | None
+    mode: int | None
+    encrypted: bool
+
+
+def _parse_unrar_listing(text: str) -> list[_UnrarEntry]:
+    """The entry blocks of `unrar l`, in the order `unrar` printed them.
+
+    That order is the archive's stored order; nothing here sorts or walks.
+    Unrar output is a simple table with columns: Attributes, Size, Date, Time, Name
+    """
+    entries: list[_UnrarEntry] = []
+    
+    lines = text.splitlines()
+    in_table = False
+    
+    for line in lines:
+        line = line.rstrip()
+        
+        # Skip header lines and separators
+        if not line.strip():
+            continue
+        if line.startswith("UNRAR") or line.startswith("Archive:") or line.startswith("Details:"):
+            continue
+        if line.strip().startswith("--------"):
+            # Separator line - if we see this after header, we're in the table
+            in_table = True
+            continue
+        if "total" in line.lower():
+            # End of table
+            continue
+        
+        # Check if this is the header line
+        if "Name" in line and ("Attributes" in line or "Size" in line):
+            in_table = True
+            continue
+        
+        # If we're in the table, parse the line
+        if in_table and line.strip():
+            # Skip lines that look like totals (mostly spaces and numbers)
+            stripped = line.strip()
+            if all(c in " 0123456789" for c in stripped):
+                continue
+            
+            # Unrar table format: Attributes Size Date Time Name
+            parts = line.split()
+            
+            if len(parts) >= 5:
+                # We need: attributes, size, date, time, name
+                name = parts[-1]
+                if name and name not in ("Name", "Size", "Date", "Time", "Attributes") and not name.isdigit():
+                    # Try to parse the metadata from the first parts
+                    attributes = parts[0]
+                    size_str = parts[1]
+                    date_part = parts[2]
+                    time_part = parts[3]
+                    entries.append(_unrar_entry_from_parts(name, attributes, size_str, f"{date_part} {time_part}"))
+            elif len(parts) >= 1:
+                # Fallback: last token might be the filename
+                name = parts[-1]
+                if name and name not in ("Name", "Size", "Date", "Time", "Attributes") and not name.isdigit():
+                    entries.append(_unrar_entry_from_parts(name, "", "", ""))
+    
+    return entries
+
+
+def _unrar_entry_from_parts(name: str, attributes: str, size_str: str, date_time_str: str) -> _UnrarEntry:
+    """Create UnrarEntry from parsed unrar table parts."""
+    is_directory = name.endswith("/") or name.endswith("\\")
+    
+    # Parse date/time
+    date_time = None
+    try:
+        from datetime import datetime
+        # Try common formats: "2026-10-08 21:19"
+        if date_time_str:
+            for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+                try:
+                    dt = datetime.strptime(date_time_str.strip(), fmt)
+                    date_time = (dt.year, dt.month, dt.day, dt.hour, dt.minute, 0)
+                    break
+                except ValueError:
+                    continue
+    except (ValueError, ImportError):
+        pass
+    
+    # Parse mode from attributes (e.g., "-rw-rw-r--")
+    mode = None
+    if attributes:
+        mode = _parse_mode(attributes)
+    
+    # Check for encrypted flag - unrar shows this differently
+    encrypted = False
+    
+    return _UnrarEntry(
+        name=name,
+        is_directory=is_directory,
+        date_time=date_time,
+        mode=mode,
+        encrypted=encrypted
+    )
+
+
 def _sevenzip_diagnostic(completed: subprocess.CompletedProcess) -> str:
     """One line naming why `7z` failed, preferring its own `ERROR:` line."""
     text = completed.stderr.decode("utf-8", "replace")
@@ -440,6 +550,35 @@ def _run_sevenzip(arguments: list[str], path: str) -> subprocess.CompletedProces
     try:
         return subprocess.run(
             [sevenzip, *arguments],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise ArchiveError(f"cannot read {path}: {exc}") from exc
+
+
+def _unrar_diagnostic(completed: subprocess.CompletedProcess) -> str:
+    """One line naming why `unrar` failed."""
+    text = completed.stderr.decode("utf-8", "replace")
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return f"unrar exited {completed.returncode}"
+
+
+def _run_unrar(arguments: list[str], path: str) -> subprocess.CompletedProcess:
+    """Run `unrar` non-interactively, turning a missing tool into an `ArchiveError`.
+
+    stdin is closed, so `unrar` can never block an unattended run on a prompt.
+    """
+    unrar = shutil.which(preflight.UNRAR)
+    if unrar is None:
+        raise ArchiveError(f"cannot read {path}: {preflight.UNRAR} was not found on PATH")
+    try:
+        return subprocess.run(
+            [unrar, *arguments],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -570,6 +709,109 @@ class SevenZipSource:
         return entry
 
 
+class UnrarSource:
+    """The RAR/CBR reader: a staged extraction behind the same seam as ZIP.
+
+    `unrar l` supplies the entry order and each entry's metadata *before* any
+    extraction, so nothing walks the extracted tree. The listing is read first
+    so a link or device entry is refused before `unrar x` could materialise it.
+    Extraction is one `unrar x` into a temp directory this reader owns; `close`
+    removes it on every exit path `Converter.convert` takes.
+    
+    Note: There is no fallback to 7z for RAR/CBR files - unrar is always required.
+    """
+
+    def __init__(self, path: str) -> None:
+        self._workdir = tempfile.mkdtemp(prefix=UNRAR_WORKDIR_PREFIX)
+        try:
+            listing = _run_unrar(["l", path], path)
+            if listing.returncode != 0:
+                raise ArchiveError(
+                    f"cannot read {path}: {_unrar_diagnostic(listing)}"
+                )
+            self._entries = _parse_unrar_listing(
+                listing.stdout.decode("utf-8", "replace")
+            )
+            self._refuse_encrypted(path)
+            self._refuse_links(path)
+            self._by_name = {entry.name: entry for entry in self._entries}
+            self._extract(path)
+        except BaseException:
+            # Every exit path, including a failure while listing, removes the
+            # staging directory this reader created.
+            self.close()
+            raise
+
+    def _refuse_encrypted(self, path: str) -> None:
+        """Refuse the whole source, by name, if any entry needs a password."""
+        for entry in self._entries:
+            if entry.encrypted:
+                raise ArchiveError(
+                    f"cannot read {path}: {entry.name!r} is encrypted; "
+                    f"cbx-jackal cannot supply a password"
+                )
+
+    def _refuse_links(self, path: str) -> None:
+        """Refuse the whole source before `unrar x` if any entry is not a file."""
+        for entry in self._entries:
+            if entry.mode is None:
+                continue
+            if (entry.mode & _MODE_TYPE_MASK) not in _REGULAR_OR_DIRECTORY:
+                raise ArchiveError(
+                    f"cannot read {path}: refusing to materialise {entry.name!r}, "
+                    f"which is a link or a device, not a regular file"
+                )
+
+    def _extract(self, path: str) -> None:
+        extraction = _run_unrar(["x", "-y", path, self._workdir], path)
+        if extraction.returncode != 0:
+            raise ArchiveError(
+                f"cannot read {path}: {_unrar_diagnostic(extraction)}"
+            )
+
+    def names_in_order(self) -> list[str]:
+        """Source entries in `unrar l`'s order, verbatim."""
+        return [entry.name for entry in self._entries]
+
+    def read(self, name: str) -> bytes:
+        """Read one extracted entry's full contents."""
+        entry = self._entry(name)
+        target = os.path.join(self._workdir, name)
+        if entry.is_directory or os.path.isdir(target):
+            return b""
+        try:
+            with open(target, "rb") as handle:
+                return handle.read()
+        except OSError as exc:
+            raise ArchiveError(f"cannot read {name}: {exc}") from exc
+
+    def template_for(self, name: str) -> EntryTemplate | None:
+        """The entry's own timestamp and mode, carried to the output."""
+        entry = self._entry(name)
+        if entry.date_time is None and entry.mode is None:
+            return None
+        return EntryTemplate(
+            date_time=entry.date_time,
+            external_attr=(entry.mode << 16) if entry.mode else None,
+        )
+
+    def _entry(self, name: str) -> "_UnrarEntry":
+        entry = self._by_name.get(name)
+        if entry is None:
+            raise ArchiveError(f"cannot read {name}: {name!r} not in archive")
+        return entry
+
+    def close(self) -> None:
+        """Remove the staging directory and its contents."""
+        shutil.rmtree(self._workdir, ignore_errors=True)
+
+    def __enter__(self) -> "UnrarSource":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+
 #: Readers by recognised input suffix, lowercase. This map and
 #: `discover.ARCHIVE_SUFFIXES` are extended together: a suffix is an input
 #: exactly when a reader is registered for it here.
@@ -578,7 +820,9 @@ SOURCE_READERS: "dict[str, Callable[[str], EntrySource]]" = {
     ".zip": ZipSource,
     ".cb7": SevenZipSource,
     ".7z": SevenZipSource,
-    ".rar": SevenZipSource,
+    ".rar": UnrarSource,
+    ".cbr": UnrarSource,
+    ".cbt": UnrarSource,
 }
 
 
@@ -591,6 +835,17 @@ def requires_sevenzip(path: str) -> bool:
     is required.
     """
     return SOURCE_READERS.get(os.path.splitext(path)[1].lower()) is SevenZipSource
+
+
+def requires_unrar(path: str) -> bool:
+    """Whether opening `path` will need `unrar` on PATH.
+
+    Read off the registry rather than a second suffix list, so registering a
+    reader is the only edit a new container needs. A suffix no reader claims
+    needs no tool here: `open_source` refuses it as unreadable before any tool
+    check runs. There is no fallback to 7z for RAR/CBR/CBT files.
+    """
+    return SOURCE_READERS.get(os.path.splitext(path)[1].lower()) is UnrarSource
 
 
 def open_source(path: str) -> EntrySource:

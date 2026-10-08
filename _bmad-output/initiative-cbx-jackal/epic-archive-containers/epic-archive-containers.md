@@ -13,7 +13,7 @@ risk: high
 ## Description
 
 An owner whose library is RAR, CB7 or 7Z converts it without unpacking it by hand. Read-only on the
-container side: `7z` reads all three by content rather than extension, and output stays CBZ, so no
+container side: `unrar` reads RAR/CBR files and `7z` reads CB7 and 7Z by content rather than extension, and output stays CBZ, so no
 proprietary archiver writer is ever required.
 
 ## Outcome
@@ -32,14 +32,12 @@ count and entry bytes are preserved exactly as the ZIP path preserves them.
    source, and every non-converted entry byte-identical.
 2. A corrupt or unreadable source archive leaves no output at all and exits non-zero, exactly as the ZIP
    path behaves today.
-3. `7z` absent, with an input that needs it, names `7z` in the same message as any other missing tool
-   rather than one message per tool, and refuses only the inputs that need it. Every other path in the run
-   still converts and the run exits non-zero. A missing `7z` never stops a ZIP in the same run.
+3. `unrar` absent with a RAR/CBR input, or `7z` absent with an input that needs it, names the missing tool in the same message as any other missing tool rather than one message per tool, and refuses only the inputs that need it. Every other path in the run still converts and the run exits non-zero. A missing tool never stops a ZIP in the same run.
 4. A solid archive's entries convert correctly, measured against a solid fixture — a member extracted from a
    single-block archive is byte-exact, but re-inserting one member re-deflates the whole stream, so this is
    stated as a known cost rather than left for a reader to discover.
 5. ZIP input behaviour is unchanged, byte for byte.
-6. `README.md` documents installing `7z` for linux, mac and windows.
+6. `README.md` documents installing `7z` and `unrar` for linux, mac and windows.
 7. The package installs into a clean virtual environment and its entry point runs, checked in the closing
    suite. (Amended 2026-10-08: this read "the released version installs and runs from a clean environment on
    all three platforms", which nothing here can verify — there is no CI and no release process. The
@@ -100,14 +98,14 @@ The input container and the external reader for it. Output stays CBZ and the ato
   `preflight.py`'s shape is nominally owned by the opening epic, but its code is entry 1.11's, deep in that
   epic's chain — waiting would serialise this epic behind entries 8 through 11. The contract is fixed, so
   the two edits are additive rather than competing.
-- Decision: the preflight checks for **`7z` only** (2026-10-08, inception), matching Done-when 6 and the
-  README. A system carrying only `7zz` or `7za` needs a `7z` symlink, which the README says in one line.
+- Decision: the preflight checks for **`unrar` and `7z`** (2026-10-08, inception), matching Done-when 6 and the
+  README. A system carrying only `7zz` or `7za` needs a `7z` symlink, which the README says in one line. `unrar` has no common aliases.
 - Measured 2026-10-08, settling entry 5's `unknown`: **a RAR fixture cannot be produced in this repository,
   and hand-constructing one does not work.** `7z i` lists `Rar` and `Rar5` with no create flag, there is no
   `rar` binary, only read-only `unrar`, and no `.rar` exists on the system. A minimal stored-method RAR4
   written by hand — correct marker, main header, file header and CRCs — is accepted by `unrar` and listed
   with the right name and size, but **`7z` rejects every variant**, including with an end-of-archive block,
-  both host-OS values, and the dictionary-size flag bits set. Since `7z` is the reader the tool uses, a
+  both host-OS values, and the dictionary-size flag bits set. Since `unrar` is now the reader for RAR files, a
   hand-rolled encoder is not a fixture; it is a liability. So the fixture is a committed binary produced
   outside this repository by a real RAR writer, and producing it is the `hitl` step entry 5 already carries.
 - Measured 2026-10-08: `7z` creates 7z, CB7, a solid 7z (`-ms=on`) and an encrypted 7z (`-p`) — but
@@ -125,8 +123,8 @@ The input container and the external reader for it. Output stays CBZ and the ato
   before any archive opens", which would have meant one missing `7z` refusing a whole library of CBZs.
   The preflight contract now carries two severities: `cjxl` and any box tool abort, because every run
   needs them; an input-driven tool refuses only the inputs that need it and the rest of the run converts.
-- Measured: `7z` reads rar, cb7 and 7z by content rather than extension; extraction is byte-exact; `7z l`
-  on a broken archive returns rc 2, so the failure oracle keeps the shape `cjxl` already has.
+- Decision: **use `unrar` for RAR/CBR files instead of `7z`** (2026-10-08). `7z` cannot reliably read new RAR archives, and `unrar` is the dedicated tool for the format. There is no fallback: RAR/CBR inputs always require `unrar` and will fail if it is missing, while CB7 and 7Z inputs continue to use `7z`.
+- Measured: `unrar` reads rar/cbr by content rather than extension, `7z` reads cb7 and 7z by content rather than extension; extraction is byte-exact; `7z l` and `unrar l` on a broken archive return rc 2, so the failure oracle keeps the shape `cjxl` already has.
 - Known cost: re-inserting one member into a solid block re-deflates the whole stream, so pages that were
   never touched get recompressed and the source's internal container layout is not preserved. Entry-level
   byte fidelity holds; layout fidelity does not.

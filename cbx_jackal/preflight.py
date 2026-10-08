@@ -9,9 +9,10 @@ from typing import Iterable, Sequence
 #: The tool every run needs. Never bundled.
 TOOL = "cjxl"
 
-#: The input-driven archiver. Needed only by inputs whose reader shells out to
-#: it, so its check runs after expansion and only when such an input is present.
+#: The input-driven archivers. Needed only by inputs whose reader shells out to
+#: it, so their check runs after expansion and only when such an input is present.
 SEVENZIP = "7z"
+UNRAR = "unrar"
 
 #: `cjxl`'s guidance, verbatim apart from the tool name. One copy, shared by the
 #: registry and the single-tool compatibility helper.
@@ -43,6 +44,20 @@ SEVENZIP_GUIDANCE = (
     "See README.md for installation instructions."
 )
 
+#: `unrar`'s guidance, verbatim apart from the tool name.
+UNRAR_GUIDANCE = (
+    "cbx-jackal shells out to {tool} to read RAR and CBR archives; it is never\n"
+    "bundled, because no standard-library module reads those containers.\n"
+    "\n"
+    "Install it for your platform, then re-run:\n"
+    "\n"
+    "  linux    apt install unrar            (or your distro's equivalent)\n"
+    "  mac      brew install unrar\n"
+    "  windows  UnRAR release build on PATH, or a package manager\n"
+    "\n"
+    "See README.md for installation instructions."
+)
+
 
 @dataclass(frozen=True)
 class Tool:
@@ -70,6 +85,11 @@ TOOLS: "dict[str, Tool]" = {
     SEVENZIP: Tool(
         name=SEVENZIP,
         guidance=SEVENZIP_GUIDANCE.format(tool=SEVENZIP),
+        stops_run=False,
+    ),
+    UNRAR: Tool(
+        name=UNRAR,
+        guidance=UNRAR_GUIDANCE.format(tool=UNRAR),
         stops_run=False,
     ),
 }

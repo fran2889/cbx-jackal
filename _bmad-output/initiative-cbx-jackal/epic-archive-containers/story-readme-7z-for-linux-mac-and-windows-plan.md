@@ -1,6 +1,6 @@
 ---
 type: story
-title: "README: 7z for linux, mac and windows"
+title: "README: 7z and unrar for linux, mac and windows"
 id: 9
 epic: epic-archive-containers
 initative: initiative-cbx-jackal
@@ -15,7 +15,7 @@ status: done
 
 ## Done When
 
-A reader on each platform installs 7z from the README alone and knows what a solid or an encrypted archive does.
+A reader on each platform installs 7z and unrar from the README alone and knows what a solid or an encrypted archive does, and that unrar is required for RAR/CBR/CBT files.
 
 ## Changes Made
 

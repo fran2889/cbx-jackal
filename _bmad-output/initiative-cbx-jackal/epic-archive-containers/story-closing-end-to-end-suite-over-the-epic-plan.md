@@ -8,7 +8,7 @@ covers: ["R4"]
 after: [10]
 hitl: false
 risk: medium
-status: in-progress
+status: done
 ---
 
 # Closing End-to-End Suite Over the Epic

@@ -11,7 +11,7 @@ import argparse
 import sys
 
 from . import __version__, discover, preflight
-from .archive import ArchiveError, Converter, OutputExistsError, requires_sevenzip
+from .archive import ArchiveError, Converter, OutputExistsError, requires_sevenzip, requires_unrar
 from .encode import TOOL
 
 EXIT_OK = 0
@@ -187,7 +187,11 @@ def main(argv: list[str] | None = None) -> int:
     # `magick` by registering it and staging its check the same way.
     exit_code = EXIT_OK
     missing_input_tool = False
+    
+    # Check for 7z (CB7, 7Z) and unrar (RAR, CBR) separately - no fallback between them
     needing_sevenzip = [path for path in paths if requires_sevenzip(path)]
+    needing_unrar = [path for path in paths if requires_unrar(path)]
+    
     if needing_sevenzip:
         absent = preflight.missing([preflight.SEVENZIP])
         if absent:
@@ -202,6 +206,23 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
             refused = set(needing_sevenzip)
+            paths = [path for path in paths if path not in refused]
+            missing_input_tool = True
+    
+    if needing_unrar:
+        absent = preflight.missing([preflight.UNRAR])
+        if absent:
+            print(
+                f"cbx-jackal: {preflight.missing_message(absent)}",
+                file=sys.stderr,
+            )
+            for path in needing_unrar:
+                print(
+                    f"cbx-jackal: {path}: {preflight.UNRAR} is required to "
+                    f"read this archive; skipping it",
+                    file=sys.stderr,
+                )
+            refused = set(needing_unrar)
             paths = [path for path in paths if path not in refused]
             missing_input_tool = True
 

@@ -2231,9 +2231,9 @@ class ArchiveSuffixes(unittest.TestCase):
     def test_archive_suffixes_are_every_container_with_a_reader(self):
         # Extended by the archive-containers epic: a suffix is an input exactly
         # when `SOURCE_READERS` claims it, and these two maps are extended
-        # together. Entry 5 registered .rar.
+        # together. Entry 5 registered .rar. Entry 12 registered .cbr and .cbt.
         self.assertEqual(
-            (".cbz", ".zip", ".cb7", ".7z", ".rar"), discover.ARCHIVE_SUFFIXES
+            (".cbz", ".zip", ".cb7", ".7z", ".rar", ".cbr", ".cbt"), discover.ARCHIVE_SUFFIXES
         )
 
     def test_output_suffix_is_fixed_at_jxl_cbz(self):
