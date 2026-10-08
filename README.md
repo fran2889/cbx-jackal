@@ -88,6 +88,64 @@ cjxl --version   # JPEG XL encoder v0.11.1
 djxl --version
 ```
 
+## Installing magick
+
+`magick` from ImageMagick 7 is required **only when you use `--max-width` or
+`--max-height`**. It is **never bundled** for the same reason `cjxl` is not.
+The tool checks for it **before opening any archive**, so a run with a box and
+no `magick` fails immediately rather than partway through a book.
+
+### Linux
+
+Your distribution's ImageMagick package provides `magick`:
+
+```bash
+# Debian, Ubuntu
+sudo apt install imagemagick
+
+# Fedora
+sudo dnf install imagemagick
+
+# Arch
+sudo pacman -S imagemagick
+```
+
+### macOS
+
+```bash
+brew install imagemagick
+```
+
+Then put Homebrew's `bin` on your `PATH` if it is not already:
+`export PATH="$(brew --prefix)/bin:$PATH"`.
+
+### Windows
+
+Download ImageMagick from [imagemagick.org](https://imagemagick.org/) and put
+`magick.exe` on your `PATH`. Alternatively use whichever package manager you
+already have — scoop, winget, chocolatey — if it ships ImageMagick 7 under a
+name you can confirm with `magick --version` afterwards.
+
+### Verify
+
+```bash
+magick --version   # ImageMagick 7.x.x
+```
+
+**Note on behaviour.** When `--max-width` or `--max-height` is given:
+
+- Pages that already fit the box are left **untouched** — still losslessly
+  transcoded, still byte-for-byte recoverable from the output.
+- Oversized pages are shrunk to fit using `magick -auto-orient -resize '<W>x<H>>'`
+  with a **PNG intermediate**, then `cjxl -q 100`. PNG keeps every pixel, so
+  the downscaled page is **pixels-recoverable, but the source JPEG is not** — the
+  report states this per page.
+- EXIF orientation is **honoured**: a page's display width is measured after
+  rotating it upright, so `--max-width` never constrains a page's height.
+- A **double-page spread** (display aspect ≥ 1.35:1) keeps its full width —
+  `--max-width` is not applied — but still respects `--max-height`. Spreads are
+  recognised, never split.
+
 ## Installing 7z
 
 A CB7, 7Z, or RAR input also needs the `7z` command from 7-Zip / p7zip.
@@ -373,8 +431,10 @@ commit.
   per-user size and reversibility, not durability over decades.
 - **DPI preservation.** Pixel dimensions survive; physical density does not, and
   is knowingly dropped.
-- **No image manipulation.** No resize, rotate, upscale, re-encoding of
-  non-JPEG pages, or `ComicInfo.xml` rewriting.
+- **No image manipulation beyond bounded downscaling.** No rotate, crop, colour
+  change, or `ComicInfo.xml` rewriting. Resize is supported via `--max-width` and
+  `--max-height` for downscaling oversized pages only; pages that already fit
+  the box are untouched, spreads are never split.
 - **No page-order repair.** Readers own the sort. This tool never silently
   reorders a book.
 

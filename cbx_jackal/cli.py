@@ -20,12 +20,12 @@ EXIT_FAILED = 1
 #: Usage error, missing dependency, or a refused write.
 EXIT_ENVIRONMENT = 2
 
-EPILOG = """\
+EPILOG = """\\
 exit codes:
   0  every JPEG page converted (pass-through entries do not affect this)
   1  at least one JPEG page failed to convert, or an archive was unreadable
-  2  usage error, a missing tool (cjxl always, 7z when an input needs it), or
-     the output already exists without --force
+  2  usage error, a missing tool (cjxl always, magick when --max-width/--max-height,
+     7z when an input needs it), or the output already exists without --force
 
 A path may be an archive, a directory, or a wildcard pattern such as
 'lib/*.cbz'. A directory is scanned for archives in sorted order and each
@@ -37,8 +37,11 @@ expand it before this tool sees it.
 
 The output is always a new file named <input>.<format>.cbz beside the input,
 where <format> is what --format names -- .cbz never varies with the input. The
-input is never modified. Requires cjxl from the libjxl tools package, and 7z as
-well when an input is a CB7 or 7Z rather than a CBZ or ZIP; see README.md.
+input is never modified. When --max-width or --max-height is given, oversized pages
+are downscaled via ImageMagick to a PNG intermediate, then encoded with cjxl -q 100;
+pages that already fit the box are left untouched and keep their source JPEG
+byte-recoverable. Requires cjxl from the libjxl tools package; magick when a box
+is requested; 7z when an input is a CB7 or 7Z rather than a CBZ or ZIP; see README.md.
 """
 
 

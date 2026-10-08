@@ -37,6 +37,7 @@ covers = []
 after = [0, "0a"]
 hitl = false
 risk = "medium"
+state = "done"
 
 [[entry]]
 id = 2

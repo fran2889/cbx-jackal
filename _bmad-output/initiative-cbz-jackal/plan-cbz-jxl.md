@@ -33,11 +33,14 @@ a safe, order-preserving one-command operation.
 
 **Always:** lossless by default with no flag; stored entry order verbatim, never sorted or renumbered;
 output is always a new file, never in-place; write to temp then `os.replace`; `ZIP_STORED` only; exit
-non-zero if and only if a JPEG failed to convert; no Python imaging libraries; `cjxl` is the only
-external tool and is never bundled.
+non-zero if and only if a JPEG failed to convert; no Python imaging libraries (Pillow stays out);
+`cjxl` is never bundled, and ImageMagick's `magick` is a second external tool required only when a
+box is requested.
 
-**Never:** bundle libjxl; modify or delete the input archive; drop a failed page (copy it through
-instead); re-encode an existing `.jxl` (that destroys the reconstruction data); parse pixels in Python.
+**Never:** bundle libjxl or ImageMagick; modify or delete the input archive; drop a failed page (copy it
+through instead); re-encode an existing `.jxl` (that destroys the reconstruction data); decode pixels in
+Python (reading a `SOF0` header and an APP1 orientation tag is not decoding); split a double-page
+spread; enlarge, rotate or crop a page.
 
 ## I/O & Edge-Case Matrix
 
@@ -53,6 +56,14 @@ instead); re-encode an existing `.jxl` (that destroys the reconstruction data); 
 | Missing dependency | `cjxl` not on PATH | exit non-zero **before** opening any archive, naming the tool + docs | no stack trace |
 | Output exists | `<name>.jxl.cbz` present | refuse without `--force` | exit non-zero, input untouched |
 | Unreadable archive | zip that cannot be read | no output file written at all | exit non-zero |
+| Bounded downscale | `--max-width 1600` on a 2480x3508 page | page becomes 1600x2260, one entry, source recoverable only as the intermediate | none |
+| Already fits | `--max-width 1600` on an 800x1200 page | untouched by the resize path; source JPEG byte-for-byte recoverable | none |
+| Never enlarged | `--max-width 4000` on an 800x1200 page | still 800x1200 | none |
+| Rotated page | 600x300 tagged orientation 6, `--max-width 1600` | box judged against display 300x600, so the width limit does not apply to the height | none |
+| Spread | 2480x1500, `--max-width 1600` | `--max-height` applies, `--max-width` does not; stays one entry | named in the report |
+| Downscale failure | `magick` non-zero on one page | original bytes copied through under original name; archive complete | one line + non-zero exit |
+| Missing second tool | `magick` absent, a box requested | exit non-zero before any archive opens, naming `magick` | no stack trace |
+| No box requested | `magick` absent, no box given | runs normally; `magick` is never checked | none |
 
 </frozen-after-approval>
 
@@ -85,6 +96,10 @@ instead); re-encode an existing `.jxl` (that destroys the reconstruction data); 
 - Given any run that fails, when the process exits, then no output file exists at any path
 - Given `cjxl` absent from PATH, when invoked, then it exits non-zero before opening the archive and mentions the tool (CAP-5)
 - Given `--dry-run`, when invoked, then nothing is written and the plan plus size figures are reported
+- Given a page that already fits the box, when converted, then it is byte-identically recoverable from the output (CAP-1 intact for that page)
+- Given an oversized page tagged with a non-trivial EXIF orientation, when the box is applied, then the comparison uses the display dimensions, so `--max-width` is never applied to a page's height
+- Given a spread over the box, when converted, then `--max-width` is not applied, `--max-height` still is, and the entry count is unchanged
+- Given any run with a box requested, when `magick` is absent, then the run exits non-zero before opening an archive and names `magick` (CAP-5)
 
 ## Implementation Notes
 
