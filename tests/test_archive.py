@@ -874,12 +874,6 @@ class SevenZipSource(ArchiveTestCase):
 
     requires_7z = True
 
-    def workdirs(self) -> set:
-        """The reader's own staging directories currently on disk."""
-        return set(
-            glob.glob(os.path.join(tempfile.gettempdir(), "cbx-jackal-7z-*"))
-        )
-
     def test_a_cb7_converts_end_to_end_in_the_listings_order(self):
         # Deliberately unsorted: 7z owns the order, and the reader must
         # reproduce the listing's, not the order handed to the builder.
@@ -1102,6 +1096,45 @@ class SolidArchive(ArchiveTestCase):
         # wrong member would keep the names and change the content.
         self.assertReconstructsTo(written["page001.jxl"], read_bytes(REAL_JPEG))
         self.assertReconstructsTo(written["page002.jxl"], read_bytes(REAL_JPEG_2))
+
+
+class TruncatedSource(ArchiveTestCase):
+    """A truncated CB7 leaves no output, exits non-zero, and does not stop the
+    healthy inputs beside it in the same run."""
+
+    requires_7z = True
+
+    def truncate(self, name: str) -> str:
+        source = rich_cb7(self.path(name))
+        data = read_bytes(source)
+        with open(source, "wb") as handle:
+            handle.write(data[: len(data) // 2])
+        return source
+
+    def test_a_truncated_cb7_leaves_no_output_and_no_traceback(self):
+        source = self.truncate("book.cb7")
+        before = self.workdirs()
+        code, _, err = self.capture([source])
+        self.assertEqual(cli.EXIT_FAILED, code)
+        self.assertFalse(os.path.exists(destination_for(source)))
+        self.assertNotIn("Traceback", err)
+        # `assertNoTempFiles` scans this case's own directory; the reader stages
+        # under the system temp, so `workdirs` is what sees a leaked one.
+        self.assertEqual(before, self.workdirs())
+
+    def test_a_healthy_input_beside_a_truncated_one_still_converts(self):
+        good = rich_cb7(self.path("good.cb7"))
+        bad = self.truncate("bad.cb7")
+        # The bad one first: with the good one first it would already be
+        # converted by the time the failure hit, so a CLI that aborted on the
+        # first failure would pass this test.
+        code, _, err = self.capture([bad, good])
+        # The run is non-zero because one path failed, but the other is still
+        # work the owner asked for: it converts, and only the bad one is refused.
+        self.assertEqual(cli.EXIT_FAILED, code)
+        self.assertTrue(os.path.exists(destination_for(good)))
+        self.assertFalse(os.path.exists(destination_for(bad)))
+        self.assertIn("bad.cb7", err)
 
 
 class SevenZipPreflight(ArchiveTestCase):

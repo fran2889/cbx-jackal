@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import calendar
+import glob
 import io
 import os
 import shutil
@@ -12,7 +13,7 @@ import unittest
 import zipfile
 from typing import TypeVar
 
-from cbx_jackal import cli, discover, preflight
+from cbx_jackal import archive, cli, discover, preflight
 
 #: Bound to whatever `ArchiveTestCase.require` is asked to narrow.
 T = TypeVar("T")
@@ -351,7 +352,12 @@ class ArchiveTestCase(unittest.TestCase):
         )
 
     def assertNoTempFiles(self, directory: str | None = None):
-        """No cbx-jackal temp file survives a run, on any exit path."""
+        """No cbx-jackal temp file survives a run, on any exit path.
+
+        This scans the case's own directory, which is where the ZIP path stages.
+        The 7z reader stages under the system temp instead, so a test of that
+        path needs `workdirs` as well.
+        """
         directory = directory or self.tmp
         leftovers = [
             name
@@ -359,6 +365,20 @@ class ArchiveTestCase(unittest.TestCase):
             if name.startswith(".cbx-jackal-") or name.endswith(".cbz.tmp")
         ]
         self.assertEqual([], leftovers, f"temp files left behind: {leftovers}")
+
+    def workdirs(self) -> set:
+        """The 7z reader's own staging directories currently on disk.
+
+        Its prefix is read from the reader rather than spelled again here, so a
+        leaked staging directory is attributable to the reader that caused it.
+        """
+        return set(
+            glob.glob(
+                os.path.join(
+                    tempfile.gettempdir(), archive.SEVENZIP_WORKDIR_PREFIX + "*"
+                )
+            )
+        )
 
     def assertCleanReport(self, report):
         """No page failed and the run is not marked aborted."""
