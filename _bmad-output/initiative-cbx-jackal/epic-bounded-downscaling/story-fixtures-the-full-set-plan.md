@@ -3,7 +3,7 @@ title: 'Fixtures: the full set'
 type: 'feature'
 ticket: '2'
 created: '2026-10-08'
-status: in_progress
+status: done
 baseline_revision: ''
 route: 'full'
 route_source: 'auto'

@@ -3,7 +3,7 @@ title: 'De-risk the chain and build the fixture injector'
 type: 'spike'
 ticket: '1'
 created: '2026-10-08'
-status: in_progress
+status: done
 baseline_revision: ''
 route: 'full'
 route_source: 'auto'
