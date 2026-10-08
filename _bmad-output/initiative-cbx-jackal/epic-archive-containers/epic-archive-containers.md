@@ -102,6 +102,14 @@ The input container and the external reader for it. Output stays CBZ and the ato
   the two edits are additive rather than competing.
 - Decision: the preflight checks for **`7z` only** (2026-10-08, inception), matching Done-when 6 and the
   README. A system carrying only `7zz` or `7za` needs a `7z` symlink, which the README says in one line.
+- Measured 2026-10-08, settling entry 5's `unknown`: **a RAR fixture cannot be produced in this repository,
+  and hand-constructing one does not work.** `7z i` lists `Rar` and `Rar5` with no create flag, there is no
+  `rar` binary, only read-only `unrar`, and no `.rar` exists on the system. A minimal stored-method RAR4
+  written by hand — correct marker, main header, file header and CRCs — is accepted by `unrar` and listed
+  with the right name and size, but **`7z` rejects every variant**, including with an end-of-archive block,
+  both host-OS values, and the dictionary-size flag bits set. Since `7z` is the reader the tool uses, a
+  hand-rolled encoder is not a fixture; it is a liability. So the fixture is a committed binary produced
+  outside this repository by a real RAR writer, and producing it is the `hitl` step entry 5 already carries.
 - Measured 2026-10-08: `7z` creates 7z, CB7, a solid 7z (`-ms=on`) and an encrypted 7z (`-p`) — but
   **cannot create RAR**, and no `rar` binary exists here, only read-only `unrar`. So the RAR fixture is a
   committed binary produced outside this repository, and making it is a `hitl` step. CB7, solid and
