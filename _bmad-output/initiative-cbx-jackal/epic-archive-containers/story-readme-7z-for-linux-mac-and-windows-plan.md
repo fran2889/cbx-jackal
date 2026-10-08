@@ -8,7 +8,7 @@ covers: ["R4"]
 after: [3, 6, 8]
 hitl: false
 risk: low
-status: built
+status: done
 ---
 
 # README: 7z for linux, mac and windows

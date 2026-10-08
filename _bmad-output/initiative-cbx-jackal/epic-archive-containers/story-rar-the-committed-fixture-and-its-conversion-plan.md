@@ -8,7 +8,7 @@ covers: ["R4"]
 after: [4]
 hitl: true
 risk: medium
-status: built
+status: done
 ---
 
 # RAR: the committed fixture and its conversion
