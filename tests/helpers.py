@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 import io
 import os
 import shutil
@@ -29,6 +30,11 @@ MISNAMED_PNG = os.path.join(FIXTURES, "page003.png")
 
 COMIC_INFO = b'<?xml version="1.0"?><ComicInfo><Pages Count="2"/></ComicInfo>'
 README = b"This is a readme, not a page.\n"
+
+#: The modification time stamped on every staged fixture file, so a `7z` fixture
+#: is byte-stable across runs. `7z` embeds each entry's mtime, so without this a
+#: rebuilt fixture differs from the last one and anything hashing it is flaky.
+SEVENZIP_FIXTURE_MTIME = calendar.timegm((2026, 1, 1, 0, 0, 0, 0, 0, 0))
 
 
 def read_bytes(path: str) -> bytes:
@@ -67,16 +73,23 @@ def build_7z(
 
     Shells out to `7z`, which owns the stored order: it sorts entries, so the
     order a reader must reproduce is `7z`'s listing order, not the order given
-    here. Timestamps are not pinned -- the reader takes them from the listing.
+    here. Every staged file is stamped with `SEVENZIP_FIXTURE_MTIME`, so the
+    archive's bytes are the same on every run; the reader takes its timestamps
+    from the listing, which is what that stamp is there to make checkable.
 
     `symlink` is an optional `(name, target)` pair stored with `-snl`, so a
     source holding a link entry can be built without materialising one outside
     the archive.
     """
-    sevenzip = shutil.which("7z")
+    sevenzip = shutil.which(preflight.SEVENZIP)
     if sevenzip is None:
-        raise unittest.SkipTest("7z is not on PATH")
+        raise unittest.SkipTest(f"{preflight.SEVENZIP} is not on PATH")
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    # `7z a` updates an archive it finds, keeping entries it was not given, so a
+    # reused path would hold more than `entries`. Replace rather than merge, as
+    # `build_zip` does by opening with "w".
+    if os.path.exists(path):
+        os.remove(path)
     with tempfile.TemporaryDirectory(prefix="cbx-jackal-7z-build-") as staging:
         names = []
         for name, data in entries:
@@ -84,10 +97,17 @@ def build_7z(
             os.makedirs(os.path.dirname(target), exist_ok=True)
             with open(target, "wb") as handle:
                 handle.write(data)
+            os.utime(target, (SEVENZIP_FIXTURE_MTIME, SEVENZIP_FIXTURE_MTIME))
             names.append(name)
         if symlink is not None:
             link_name, link_target = symlink
-            os.symlink(link_target, os.path.join(staging, link_name))
+            link_path = os.path.join(staging, link_name)
+            os.symlink(link_target, link_path)
+            os.utime(
+                link_path,
+                (SEVENZIP_FIXTURE_MTIME, SEVENZIP_FIXTURE_MTIME),
+                follow_symlinks=False,
+            )
             names.append(link_name)
 
         command = [sevenzip, "a", "-t7z"]
@@ -111,6 +131,68 @@ def build_7z(
                 f"{completed.stderr.decode('utf-8', 'replace')}"
             )
     return path
+
+
+def rich_cb7(path: str) -> str:
+    """A CB7 holding a page, a resource fork, a nested file and a `ComicInfo.xml`.
+
+    The shape the end-to-end tests use: one fixture covering transcode, the
+    `__MACOSX` fork rule, a nested path and a pass-through at once. It does not
+    stage a directory entry or a bare `._` file, which `classify` also decides;
+    those are built where they are tested.
+    """
+    return build_7z(
+        path,
+        [
+            ("page001.jpg", read_bytes(REAL_JPEG)),
+            ("__MACOSX/._page001.jpg", b"\x00\x00applefork"),
+            ("extras/note.txt", README),
+            ("ComicInfo.xml", COMIC_INFO),
+        ],
+    )
+
+
+def solid_cb7(path: str) -> str:
+    """A solid CB7: every member shares one compressed block.
+
+    This is the case per-member extraction would re-decompress whole, which is
+    why the reader stages one extraction instead.
+    """
+    return build_7z(
+        path,
+        [
+            ("page001.jpg", read_bytes(REAL_JPEG)),
+            ("page002.jpg", read_bytes(REAL_JPEG_2)),
+            ("ComicInfo.xml", COMIC_INFO),
+        ],
+        solid=True,
+    )
+
+
+def encrypted_cb7(path: str, password: str = "secret") -> str:
+    """A CB7 whose members need a password, so the reader must refuse it.
+
+    The point is that it must refuse rather than hang: `7z` prompts for a
+    password, so a reader that does not force a non-interactive failure would
+    block an unattended run here.
+    """
+    return build_7z(
+        path, [("page001.jpg", read_bytes(REAL_JPEG))], password=password
+    )
+
+
+def sevenzip_listing(path: str) -> str:
+    """`7z l -slt` output for `path`, so a test can assert what `7z` stored."""
+    sevenzip = shutil.which(preflight.SEVENZIP)
+    if sevenzip is None:
+        raise unittest.SkipTest(f"{preflight.SEVENZIP} is not on PATH")
+    completed = subprocess.run(
+        [sevenzip, "l", "-slt", path],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return completed.stdout.decode("utf-8", "replace")
 
 
 def names_in_order(path: str) -> list[str]:

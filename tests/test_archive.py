@@ -44,8 +44,12 @@ from helpers import (  # noqa: E402
     build_zip,
     compress_types,
     contents,
+    encrypted_cb7,
     names_in_order,
     read_bytes,
+    rich_cb7,
+    sevenzip_listing,
+    solid_cb7,
 )
 
 
@@ -1000,6 +1004,72 @@ class SevenZipSource(ArchiveTestCase):
         with zipfile.ZipFile(destination_for(source)) as out:
             self.assertTrue(out.getinfo("emptydir/").is_dir())
             self.assertFalse(out.getinfo("f.txt").is_dir())
+
+
+class GeneratedFixtures(ArchiveTestCase):
+    """The 7z fixture builder is byte-stable, so a fixture can be regenerated.
+
+    Needs `7z` to build, not `cjxl` to convert: these assert the fixtures, not a
+    conversion.
+    """
+
+    requires_cjxl = False
+    requires_7z = True
+
+    def test_a_cb7_fixture_is_byte_stable(self):
+        first = build_7z(
+            self.path("one.cb7"),
+            [("a.jpg", read_bytes(REAL_JPEG)), ("ComicInfo.xml", COMIC_INFO)],
+        )
+        second = build_7z(
+            self.path("two.cb7"),
+            [("a.jpg", read_bytes(REAL_JPEG)), ("ComicInfo.xml", COMIC_INFO)],
+        )
+        self.assertEqual(read_bytes(first), read_bytes(second))
+
+    def test_every_unencrypted_fixture_is_byte_stable(self):
+        # `7z` embeds each entry's mtime, so this is what the pinned stamp buys:
+        # a fixture regenerated tomorrow is the same file as today's. The
+        # encrypted one is deliberately absent -- see below.
+        for build in (rich_cb7, solid_cb7):
+            with self.subTest(builder=build.__name__):
+                first = build(self.path("first.cb7"))
+                second = build(self.path("second.cb7"))
+                self.assertEqual(read_bytes(first), read_bytes(second))
+
+    def test_an_encrypted_fixture_cannot_be_byte_stable(self):
+        # Not an oversight to fix: `7z`'s AES picks a random salt per archive, so
+        # two encrypted fixtures built from identical input differ by design. The
+        # test pins that rather than leaving it to be rediscovered, and asserts
+        # the property the fixture is for.
+        first = read_bytes(encrypted_cb7(self.path("e1.cb7")))
+        second = read_bytes(encrypted_cb7(self.path("e2.cb7")))
+        self.assertNotEqual(first, second)
+        self.assertIn("Encrypted = +", sevenzip_listing(self.path("e1.cb7")))
+
+    def test_the_solid_fixture_is_solid(self):
+        listing = sevenzip_listing(solid_cb7(self.path("solid.cb7")))
+        self.assertIn("Solid = +", listing)
+
+    def test_the_encrypted_fixture_is_encrypted(self):
+        listing = sevenzip_listing(encrypted_cb7(self.path("enc.cb7")))
+        self.assertIn("Encrypted = +", listing)
+
+    def test_the_rich_fixture_holds_its_entries_in_the_listings_order(self):
+        source = rich_cb7(self.path("rich.cb7"))
+        self.assertEqual(
+            [
+                "ComicInfo.xml",
+                "__MACOSX/._page001.jpg",
+                "extras/note.txt",
+                "page001.jpg",
+            ],
+            [
+                line.split(" = ", 1)[1]
+                for line in sevenzip_listing(source).splitlines()
+                if line.startswith("Path = ") and line != f"Path = {source}"
+            ],
+        )
 
 
 class SevenZipPreflight(ArchiveTestCase):
