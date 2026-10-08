@@ -35,6 +35,33 @@ passes no flags" is a statement about JPEG input and nothing else.
 value including 30: it changed the output's byte size and never its pixels. 90 and 100 produced identical
 bytes.
 
+## Resizing
+
+`cjxl` cannot resize. Verified against libjxl 0.11.1's full expert option list (`cjxl -v -v -v -v
+--help`): no `--resize`, no size argument, nothing that scales the output grid. A page that must be
+smaller goes through ImageMagick first, then takes the existing lossless path unchanged:
+
+```bash
+magick <in.jpg> -auto-orient -resize '<W>x<H>>' -quality 100 <mid.png>   # W,H computed in Python
+cjxl -q 100 <mid.png> <out.jxl>                                    # -q 100 mandatory for PNG
+```
+
+Three flags are load-bearing:
+
+- `-resize '<W>x<H>>'` — the trailing `>` is the downsize guard: verified that `2400x3200>` against a
+  400x600 page leaves it 400x600. `<W>x<H>` are supplied by Python, already aspect-correct, so `magick`
+  has no fit decision left to make.
+- `-auto-orient` — bakes the EXIF orientation into the pixels before geometry is measured, so the
+  intermediate is upright and its EXIF tag cannot double-rotate it.
+- the intermediate's own encoding — for PNG, `-quality 100` is mandatory: `cjxl` with no flags on a PNG
+  intermediate lost 195,790 pixels on the 2026-10-08 re-measurement, so the lossless invocation on this path
+  is `cjxl -q 100`.
+
+Geometry is decided in Python from the `SOF0` frame header and the APP1 orientation tag. Neither
+requires decoding a pixel, so the stdlib-only constraint holds. Letting `magick` pick the box instead
+would be a bug: it measures coded dimensions, which is how a 600x300 page tagged orientation 6 ends up
+fitted against its height.
+
 ## Lossless transcoding and reversibility
 
 libjxl's default for JPEG input is **lossless transcoding**, announced as:
@@ -50,7 +77,13 @@ djxl <in.jxl> <out.jpg>     # -> "Reconstructed to JPEG."
 ```
 
 Verified byte-identical to the source (size and SHA-256 both match). `jxlinfo` reports
-`JPEG bitstream reconstruction data available`, which is the cheap way to assert reversibility is present.
+`JPEG bitstream reconstruction data available`, which was the cheap way to assert reversibility is present.
+
+**That check is no longer sufficient.** Under CAP-6 a downscaled page carries reconstruction data too, and
+`djxl` on it reproduces the intermediate rather than the source — measured, the reconstructed file is
+byte-identical to the intermediate and differs from the source. To audit a page, hash `djxl`'s output
+against that page's *source bytes* and let the comparison decide. The presence of reconstruction data
+proves a generation exists, never which one.
 
 Reversibility exists **only** in lossless mode. Any `-q N` below 100 drops the reconstruction data and
 permanently adds a generation of loss. Never re-encode an existing `.jxl` — that is the one way to
@@ -140,13 +173,23 @@ the run or skips inputs. The message must not be a stack trace.
 A dry run needs exactly what a real run would, because it encodes every page to report real size figures
 rather than estimates.
 
+When a box is requested, check `magick` the same way and in the same breath; CAP-5 exists so an owner
+learns what is missing before a 200-page run, not eighty pages into one. `magick` is not checked when no
+box is requested, so a plain transcode still needs nothing but libjxl. Require the `magick` name rather
+than `convert`: an ImageMagick 6 host has no `magick` and should receive the install message instead of
+silently taking a different code path. Check both together and report both together, so an owner missing
+everything is told everything in one message rather than one run per missing tool.
+
 Platform-specific install instructions belong in **documentation, not CLI output**, and must cover all
 three supported platforms:
 
 | Platform | Notes for the docs |
 |---|---|
-| linux | distro package (`libjxl-tools`), which provides `cjxl`; a `p7zip-full` or equivalent for the archiver |
-| mac | Homebrew formula (`libjxl`), and `p7zip` for the archiver |
-| windows | libjxl release build on PATH, or a package manager; 7-Zip for the archiver |
+| linux | `libjxl-tools` provides `cjxl`; `imagemagick` provides `magick`; a `p7zip-full` or equivalent for the archiver |
+| mac | Homebrew formulas `libjxl` and `imagemagick`; `p7zip` for the archiver |
+| windows | libjxl release build on PATH, or a package manager; ImageMagick from imagemagick.org; 7-Zip for the archiver |
+
+The `cjxl` rows are required by CAP-5. The `magick` rows are required by CAP-6 and are only consulted
+when a box is requested.
 
 Keep the CLI message platform-neutral so it does not go stale per platform.

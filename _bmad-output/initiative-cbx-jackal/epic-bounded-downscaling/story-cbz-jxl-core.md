@@ -1,19 +1,18 @@
 ---
-title: 'CBZ to JXL transcoder CLI'
-type: 'feature'
-ticket: ''
+title: Core CBZ to JXL transcoder
+type: story
+ticket: 0
 created: '2026-10-05'
-status: 'built'
-baseline_revision: 'ff7843a3612f09eadbff0e3953fc6e0f01b110ce'
-route: 'full'
-route_source: 'auto'
-risk: 'medium'
-review: 'quick'
-review_source: 'pinned'
+status: done
+baseline_revision: ff7843a3612f09eadbff0e3953fc6e0f01b110ce
+route: full
+route_source: auto
+risk: medium
+review: quick
+review_source: pinned
 lenses_ran: ['quick']
 review_loop_iteration: 0
-context:
-  - '{project-root}/_bmad-output/initiative-cbx-jackal/spec-cbz-jxl/conventions.md'
+context: ['{project-root}/_bmad-output/initiative-cbx-jackal/spec-cbz-jxl/conventions.md']
 ---
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">

@@ -1,19 +1,18 @@
 ---
-title: 'Convert a directory of archives'
-type: 'feature'
-ticket: ''
+title: Directory and pattern discovery
+type: story
+ticket: 0a
 created: '2026-10-06'
-status: 'built'
-baseline_revision: 'c8ae0471e1bdef4204e00096f7616e8d5cfdc625'
-route: 'full'
-route_source: 'auto'
-risk: 'medium'
-review: 'quick'
-review_source: 'pinned'
+status: done
+baseline_revision: c8ae0471e1bdef4204e00096f7616e8d5cfdc625
+route: full
+route_source: auto
+risk: medium
+review: quick
+review_source: pinned
 lenses_ran: ['quick']
 review_loop_iteration: 1
-context:
-  - '{project-root}/_bmad-output/initiative-cbx-jackal/spec-cbz-jxl/spec-cbz-jxl.md'
+context: ['{project-root}/_bmad-output/initiative-cbx-jackal/spec-cbz-jxl/spec-cbz-jxl.md']
 ---
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">

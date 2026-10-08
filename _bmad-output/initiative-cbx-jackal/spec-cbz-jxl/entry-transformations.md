@@ -5,7 +5,10 @@ no sorting and no renumbering: the pass-through rule and the stored order are wh
 
 | Entry | Action | Output name | Notes |
 |---|---|---|---|
-| `.jpg` / `.jpeg` (any case), converts cleanly | Transcode | same basename, `.jxl` | Lossless unless `--quality < 100`. |
+| `.jpg` / `.jpeg` (any case), fits the box, or no box was requested | Transcode | same basename, `.jxl` | Lossless unless `--quality < 100`; source JPEG byte-for-byte recoverable. |
+| `.jpg` / `.jpeg`, over the box, recognised as a spread | Downscale by `--max-height` only | same basename, `.jxl` | `--max-width` deliberately not applied. One entry stays one entry. |
+| `.jpg` / `.jpeg`, over the box, not a spread | Downscale to fit | same basename, `.jxl` | Largest box that fits, aspect preserved, never enlarged. |
+| `.jpg` / `.jpeg`, downscale attempted and failed | Copy verbatim, unchanged | **original name kept** | Reported as a failure; drives non-zero exit. Not dropped. |
 | `.jpg` / `.jpeg` that `cjxl` rejects | Copy verbatim, unchanged | **original name kept** | Reported as a failure; drives non-zero exit. Not dropped. |
 | Extension says `.jpg`, content is another image format | Transcode | `.jxl` | `cjxl` sniffs content, not extension, so a mislabelled file still converts correctly. |
 | Already `.jxl` | Copy verbatim | unchanged | Never re-encoded; re-encoding would drop the reconstruction data and break reversibility. |
@@ -24,6 +27,12 @@ no sorting and no renumbering: the pass-through rule and the stored order are wh
   outcome unmissable.
 - **Never re-encode an existing `.jxl`.** Round-tripping it through the transcoder is the one way to silently
   destroy the reconstruction data that makes CAP-1 verifiable.
+- **Reversibility is per page, and a downscaled page is a weaker guarantee.** A downscaled page keeps its
+  reconstruction data, so `djxl` still recovers *something* byte-for-byte — the downscaled intermediate,
+  not the source. A book in which every page was downscaled is not a CAP-1 book, and the report must not
+  let it look like one. `jxlinfo` reporting `reconstruction data available` proves nothing on its own: it
+  only confirms that the *intermediate* has reconstruction data, which is exactly what the source does not
+  under CAP-6.
 
 ## Reporting
 
