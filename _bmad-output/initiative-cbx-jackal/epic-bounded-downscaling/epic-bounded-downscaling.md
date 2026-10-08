@@ -105,6 +105,51 @@ that the other three epics wait on. Not the output format (epic-webp-target), no
 - **Contracts handed over:** entries 3, 4, 5 and 6. Their ids are stable and are what epic-webp-target,
   epic-quality-audit and epic-archive-containers name as providers at their inception — `1.3` naming and
   flags, `1.4` the outcome vocabulary, `1.5` the preflight shape, `1.6` the classification gate.
+- **Contract `1.3`, the naming and flags ruling (2026-10-08).** Settled by the maintainer and recorded here
+  rather than in the spec, as that entry directs. Two rules and one table.
+
+  **The destination is `<stem>.<format>.cbz`.** `<stem>` is the input's basename with its own suffix
+  removed and nothing else changed. `<format>` is whatever `--format` names, `jxl` by default. `.cbz` is
+  constant: it is the output container whatever the input container was, so a RAR, CB7 or 7Z input is
+  indistinguishable from a CBZ one once converted. **The box never appears in the name.**
+  `--max-width` and `--max-height` are a knob on the result, not part of its identity, and that is what
+  keeps the rescan-skip rule exact rather than width-dependent.
+
+  | input | flags | output |
+  |---|---|---|
+  | `book.cbz` | none | `book.jxl.cbz` |
+  | `book.zip` | none | `book.jxl.cbz` |
+  | `book.rar` | none | `book.jxl.cbz` |
+  | `book.cb7` | none | `book.jxl.cbz` |
+  | `book.cbz` | `--max-width 1600` | `book.jxl.cbz` |
+  | `book.cbz` | `--max-width 1600 --max-height 2000` | `book.jxl.cbz` |
+  | `book.cbz` | `--format webp` | `book.webp.cbz` |
+  | `book.cbz` | `--format webp --quality 90 --max-width 1600` | `book.webp.cbz` |
+
+  **The flag namespace.** `--format` names the target page format, `jxl` by default. `--max-width` and
+  `--max-height` are combinable and/or, never mutually exclusive: given both, the page must fit both
+  axes, and a page is not enlarged either way. `--quality` keeps one meaning across every format —
+  absent is lossless, present is lossy at that quality, range 1-100 throughout — and applies to the
+  target format's encode and never to a resize intermediate, so `--quality 90 --max-width 1600` has
+  exactly one answer. All three are per run and apply to every path in it; none varies by path. Whether
+  the intermediate is lossless or JPEG is entry 9's open decision and changes none of this surface.
+
+  **Known cost: two inputs, one name.** `book.cbz` and `book.rar` in one scan both want `book.jxl.cbz`.
+  Pre-existing — `book.cbz` and `book.zip` already collide today — but R4 makes it routine rather than
+  incidental. Accepted: the second path refuses on the existing output-exists error and `--force` decides.
+  Neither a suffix segment nor an outright refusal is the tool's business to invent, and a name that
+  varied with the input container would contradict the constant `.cbz` above.
+
+  **Owed downstream.** `is_archive` must skip every `<stem>.<format>.cbz` and not one constant, so the
+  rescan rule survives `--format webp`; that needs the format segment in its own constant beside today's.
+  `spec-cbz-jxl.md:64`, `conventions.md:89` and `README.md` each state the name as a literal
+  `<name>.jxl.cbz` and each is amended by the epic that changes it.
+
+  **Ownership gap this ruling opens: nothing yet owns the `--format` flag.** Entry 6 implements the naming
+  rule and so must read a format from somewhere, but entry 6 is a contract entry with no CLI work in it and
+  entry 11 adds only the two box flags. The flag needs a home before entry 6 starts, and the honest one is
+  entry 11 or a new entry alongside it: `--format` accepted, `jxl` the only legal value, `webp` arriving
+  with epic-webp-target. Left unowned it would be settled twice, once by the rule and once by the CLI.
 - **Shared setup:** the EXIF injector is on entry 1, the first entry that needs it, and entry 2 extends it.
 - **Open decision, deferred to entry 9: the intermediate's format and quality.** Measured 2026-10-06 on a
   1700x2400 synthetic comic page — hard line art, flat colour, text — decoding the source with one decoder

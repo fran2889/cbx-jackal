@@ -35,6 +35,17 @@ hitl = true
 risk = "low"
 
 [[entry]]
+id = 16
+type = "story"
+title = "CLI: --format, with jxl the only legal value"
+description = "Implements the format segment of the naming rule entry 3 fixed, so entry 6 has a format to read. The flag is accepted and validated, jxl is the default and the only value that converts today, and an unknown value is a usage error rather than a silent fallback. Webp arrives with epic-webp-target, which finds the flag and the naming rule already in place. Folds the rescan skip from one constant to every <stem>.<format>.cbz, so the segment the name needs is read from one place."
+verify = "cbx-jackal --format jxl on a book writes book.jxl.cbz, byte for byte the run without the flag; --format webp exits 2 with a usage message naming webp as unsupported, before any archive opens; rescanning a directory already holding book.jxl.cbz skips it rather than producing book.jxl.jxl.cbz; and no existing test was edited to accommodate this entry."
+covers = ["R1"]
+after = [3]
+hitl = false
+risk = "low"
+
+[[entry]]
 id = 4
 type = "story"
 title = "Contract: the per-page outcome vocabulary"
@@ -60,10 +71,10 @@ risk = "low"
 id = 6
 type = "story"
 title = "Contract: the classification gate, with a stub"
-description = "The interface at archive.py:66-95 that separates a raw page from an archive entry, extended so a source that is not a ZIP can be represented, with a stub epic-archive-containers can fill. Implements the naming rule entry 3 fixes. Records the ruling in this epic's envelope."
+description = "The interface at archive.py:66-95 that separates a raw page from an archive entry, extended so a source that is not a ZIP can be represented, with a stub epic-archive-containers can fill. Implements the naming rule entry 3 fixed, which entry 16 makes readable from a flag. Records the ruling in this epic's envelope."
 verify = "The interface is written down and the stub classifies a page, a resource fork, a directory and a source whose container it does not recognise, without naming any real archiver."
 covers = ["R1"]
-after = [3]
+after = [3, 16]
 hitl = true
 risk = "medium"
 
