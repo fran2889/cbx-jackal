@@ -797,8 +797,8 @@ class UnrarSource:
         if entry.date_time is None and entry.mode is None:
             return None
         return EntryTemplate(
-            date_time=entry.date_time,
-            external_attr=(entry.mode << 16) if entry.mode else None,
+            date_time=entry.date_time or (),
+            external_attr=(entry.mode << 16) if entry.mode else 0,
         )
 
     def _entry(self, name: str) -> "_UnrarEntry":

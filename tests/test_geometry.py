@@ -237,6 +237,7 @@ class PageGeometryIntegration(unittest.TestCase):
         width, height = 600, 900
         
         page_geom = geometry.compute_page_geometry(bytes_data, width, height, max_width=1600)
+        assert page_geom is not None
         
         # Should have computed display dimensions
         self.assertEqual(width, page_geom.original_width)
@@ -253,6 +254,7 @@ class PageGeometryIntegration(unittest.TestCase):
         width, height = 2000, 3000
         
         page_geom = geometry.compute_page_geometry(bytes_data, width, height, max_width=1600)
+        assert page_geom is not None
         
         # For orientation 6, display dimensions should be swapped
         # Original: 2000x3000, Display: 3000x2000
@@ -272,6 +274,7 @@ class PageGeometryIntegration(unittest.TestCase):
         
         # With a large max_width, a spread should still be detected as spread
         page_geom = geometry.compute_page_geometry(bytes_data, width, height, max_width=10000)
+        assert page_geom is not None
         
         # Spread pages should be marked as spread
         self.assertTrue(page_geom.is_spread)

@@ -918,7 +918,9 @@ class SevenZipSource(ArchiveTestCase):
         # RAR is the one container 7z reads but cannot create, so the fixture
         # is committed rather than built. book.rar holds page001.jpg,
         # page002.jpg and page003.jpg, in that order.
-        source = RAR_FIXTURE
+        # Copy so the committed fixture is never written to.
+        source = self.path("book.rar")
+        shutil.copyfile(RAR_FIXTURE, source)
         report = Converter(self.cjxl).convert(source)
         out = destination_for(source)
         # 7z lists and extracts in name order, so page001, page002, page003

@@ -40,7 +40,7 @@ class DownscaledInfo(unittest.TestCase):
         """DownscaledInfo is immutable (frozen)."""
         info = report_downscale.DownscaledInfo(100, 200, 80, 160)
         with self.assertRaises(AttributeError):
-            info.original_width = 300
+            info.original_width = 300  # type: ignore
 
 
 class SpreadInfo(unittest.TestCase):
@@ -56,7 +56,7 @@ class SpreadInfo(unittest.TestCase):
         """SpreadInfo is immutable (frozen)."""
         info = report_downscale.SpreadInfo(2000, 1000)
         with self.assertRaises(AttributeError):
-            info.display_width = 3000
+            info.display_width = 3000  # type: ignore
 
 
 class ExtendedEntryOutcome(unittest.TestCase):
