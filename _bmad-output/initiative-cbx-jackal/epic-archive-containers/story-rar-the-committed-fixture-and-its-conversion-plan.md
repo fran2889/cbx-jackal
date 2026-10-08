@@ -17,6 +17,25 @@ status: done
 
 cbx-jackal book.rar writes book.jxl.cbz with entry order, entry count and entry bytes preserved.
 
+## Issue: Incompatible Compression Method
+
+**Status:** The committed `tests/fixtures/book.rar` uses RAR5 format with compression method `v6:128K:m3` which p7zip/7z 26.00 on macOS ARM cannot extract (can list, but not extract).
+
+**Error:**
+```
+ERROR: Unsupported Method : page001.jpg
+```
+
+**Solution:** The RAR fixture needs to be recreated using a compatible compression method:
+
+1. **Store method (no compression):** `rar a -m0 book.rar page001.jpg page002.jpg page003.jpg`
+2. **Or RAR4 format:** `rar a -rar4 book.rar page001.jpg page002.jpg page003.jpg`
+3. **Or compatible method:** Use a method that p7zip can decompress
+
+The RAR command line tool (from RARLab) must be used; 7z cannot create RAR files.
+
+**Note:** This is the known limitation recorded in commit `4a2661c` — the fixture must be produced externally and committed.
+
 ## Implementation Notes
 
 RAR is the one container 7z cannot create and no rar binary exists here, so a person commits a small RAR fixture and this entry registers it with the builder entry 4 owns. The reader converts it like any other, proving the by-content path.
