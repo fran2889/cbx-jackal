@@ -3,7 +3,7 @@ type: epic
 title: "Read the archives comic collections actually arrive in"
 parent: initiative-cbx-jackal
 covers: ["R4"]
-after: ["epic-bounded-downscaling"]
+after: ["1.3", "1.5", "1.6"]
 assignee: ""
 risk: high
 ---
@@ -66,6 +66,12 @@ The input container and the external reader for it. Output stays CBZ and the ato
 
 ## Notes
 
+- Decision: the frontmatter gate was narrowed on 2026-10-08 from the whole of `epic-bounded-downscaling`
+  to the three contracts it actually needs — `1.3` the naming rule, `1.5` the preflight shape, `1.6` the
+  classification gate — matching what the initiative's declaration has said since inception. The whole-epic
+  gate was the blunt pre-inception form, and left standing it would have blocked this epic's entries until
+  downscaling's geometry and resize entries finished, serialising work the maintainer ruled order-free when
+  the contract structure was accepted.
 - Decision: Done-when 3 was amended on 2026-10-08 to stop promising an abort. It read "exits non-zero
   before any archive opens", which would have meant one missing `7z` refusing a whole library of CBZs.
   The preflight contract now carries two severities: `cjxl` and any box tool abort, because every run

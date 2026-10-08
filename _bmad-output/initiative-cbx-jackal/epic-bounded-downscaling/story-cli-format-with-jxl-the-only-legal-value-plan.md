@@ -3,7 +3,7 @@ title: 'CLI: --format, with jxl the only legal value'
 type: 'feature'
 ticket: '16'
 created: '2026-10-08'
-status: 'built'
+status: done
 baseline_revision: '9942a5c842753bff58b53ccc3aa8e2710bd5f730'
 route: 'full'
 route_source: 'auto'
