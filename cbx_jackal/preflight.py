@@ -9,6 +9,9 @@ from typing import Iterable, Sequence
 #: The tool every run needs. Never bundled.
 TOOL = "cjxl"
 
+#: The flag-driven resizer. Needed only when --max-width or --max-height is given.
+MAGICK = "magick"
+
 #: The input-driven archivers. Needed only by inputs whose reader shells out to
 #: it, so their check runs after expansion and only when such an input is present.
 SEVENZIP = "7z"
@@ -58,6 +61,20 @@ UNRAR_GUIDANCE = (
     "See README.md for installation instructions."
 )
 
+#: `magick`'s guidance, verbatim apart from the tool name.
+MAGICK_GUIDANCE = (
+    "cbx-jackal shells out to {tool} from ImageMagick to resize oversized pages\n"
+    "when --max-width or --max-height is given; it is never bundled.\n"
+    "\n"
+    "Install it for your platform, then re-run:\n"
+    "\n"
+    "  linux    apt install imagemagick      (or your distro's equivalent)\n"
+    "  mac      brew install imagemagick\n"
+    "  windows  ImageMagick release build on PATH, or a package manager\n"
+    "\n"
+    "See README.md -> Installing magick for full instructions."
+)
+
 
 @dataclass(frozen=True)
 class Tool:
@@ -81,6 +98,11 @@ TOOLS: "dict[str, Tool]" = {
         name=TOOL,
         guidance=CJXL_GUIDANCE.format(tool=TOOL),
         stops_run=True,
+    ),
+    MAGICK: Tool(
+        name=MAGICK,
+        guidance=MAGICK_GUIDANCE.format(tool=MAGICK),
+        stops_run=True,  # Flag-driven, but still stops the run when missing
     ),
     SEVENZIP: Tool(
         name=SEVENZIP,

@@ -911,6 +911,9 @@ class Converter:
         quality: int | None = None,
         strict: bool = False,
         page_format: str = DEFAULT_FORMAT,
+        max_width: int | None = None,
+        max_height: int | None = None,
+        magick: str | None = None,
     ):
         if not cjxl:
             raise ArchiveError("cjxl path is required; run the preflight first")
@@ -918,6 +921,11 @@ class Converter:
         self.quality = quality
         self.strict = strict
         self.page_format = page_format
+        self.max_width = max_width
+        self.max_height = max_height
+        self.magick = magick
+        # Box is requested if either dimension bound is set
+        self.box_requested = max_width is not None or max_height is not None
 
     def convert(
         self,

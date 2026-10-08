@@ -110,6 +110,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="overwrite an existing <name>.<format>.cbz",
     )
     parser.add_argument(
+        "--max-width",
+        type=int,
+        metavar="N",
+        default=None,
+        help="maximum display width for pages; pages wider than this are downscaled",
+    )
+    parser.add_argument(
+        "--max-height",
+        type=int,
+        metavar="N",
+        default=None,
+        help="maximum display height for pages; pages taller than this are downscaled",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"cbx-jackal {__version__}",
@@ -123,6 +137,19 @@ def _validate_quality(quality: int | None) -> int | None:
     if not 1 <= quality <= 100:
         raise ValueError(f"--quality must be between 1 and 100, got {quality}")
     return quality
+
+
+def _validate_box_dimension(value: int | None, name: str) -> int | None:
+    """Validate a box dimension (max-width or max-height).
+    
+    Must be a positive integer if provided. Zero or negative values are
+    usage errors, not silent no-ops.
+    """
+    if value is None:
+        return None
+    if value <= 0:
+        raise ValueError(f"--{name} must be a positive integer, got {value}")
+    return value
 
 
 def _validate_format(page_format: str) -> str:
@@ -154,6 +181,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         quality = _validate_quality(args.quality)
         page_format = _validate_format(args.page_format)
+        max_width = _validate_box_dimension(args.max_width, "max-width")
+        max_height = _validate_box_dimension(args.max_height, "max-height")
     except ValueError as exc:
         parser.error(str(exc))
 
@@ -161,7 +190,15 @@ def main(argv: list[str] | None = None) -> int:
     # so a missing dependency cannot be discovered partway through a 200-page
     # run. `missing` reads the registry and `missing_message` names every absent
     # stop-tool in one message, in severity order.
-    stop_tools = [name for name, tool in preflight.TOOLS.items() if tool.stops_run]
+    #
+    # For flag-driven tools (like magick), the check is still before expansion
+    # but only when the relevant flag is present.
+    stop_tools = [preflight.TOOL]  # cjxl is always required
+    
+    # magick is flag-driven: required only when --max-width or --max-height is given
+    if max_width is not None or max_height is not None:
+        stop_tools.append(preflight.MAGICK)
+    
     absent = preflight.missing(stop_tools)
     if absent:
         print(
@@ -169,7 +206,10 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return EXIT_ENVIRONMENT
-    cjxl = preflight.find_tool(TOOL)
+    cjxl = preflight.find_tool(preflight.TOOL)
+    magick = None
+    if preflight.MAGICK in stop_tools:
+        magick = preflight.find_tool(preflight.MAGICK)
     if cjxl is None:
         # Unreachable: `missing` just proved every stop-tool present. Spelled
         # out only so the type checker narrows `cjxl` to `str`.
@@ -227,7 +267,8 @@ def main(argv: list[str] | None = None) -> int:
             missing_input_tool = True
 
     converter = Converter(
-        cjxl, quality=quality, strict=args.strict, page_format=page_format
+        cjxl, quality=quality, strict=args.strict, page_format=page_format,
+        max_width=max_width, max_height=max_height, magick=magick
     )
 
     for path in paths:
