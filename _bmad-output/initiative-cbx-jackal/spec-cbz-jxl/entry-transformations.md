@@ -13,7 +13,7 @@ no sorting and no renumbering: the pass-through rule and the stored order are wh
 | `readme.txt`, `Info.txt`, any non-image | Copy verbatim | unchanged | Normal pass-through; does not affect exit code. |
 | `__MACOSX/` and other resource-fork junk | Copy verbatim | unchanged | The tool does not clean archives; that is a separate opinion the owner has not asked for. |
 | Nested folders | Copy verbatim, structure preserved | unchanged | Path structure is preserved as-is. |
-| Anything unreadable from the ZIP | Abort the run | — | An archive we cannot read entries from is not safe to rewrite. Leave no output. |
+| Anything unreadable from the source | Abort that input | — | An archive we cannot read entries from is not safe to rewrite. Leave no output. A missing container archiver skips only this input; the rest of the list still converts. |
 
 ## Consequences worth stating explicitly
 

@@ -1,7 +1,8 @@
 # External tool conventions
 
-`cjxl` is the only external dependency. Everything below was measured against **libjxl 0.11.1**; the
-Assumptions section of the spec carries the risk that this generalises.
+`cjxl` is required on every run; a container archiver is required only when a run has a non-ZIP input.
+Everything measured below is libjxl 0.11.1; the spec's Assumptions section carries the risk that this
+generalises.
 
 ## Invocation
 
@@ -82,25 +83,45 @@ validity check is needed.
 
 ## Container
 
-- Read entries with Python `zipfile` in stored order; never sort or renumber.
-- Write every entry with `ZIP_STORED`. JXL is already entropy-coded — deflate measured under 1% gain and
-  costs real CPU on every page.
+- ZIP is read with Python `zipfile` in stored order; RAR, CB7 and 7Z are read with an external archiver, in
+  that archiver's own listing order. Never sort or renumber either.
+- Write every entry with `ZIP_STORED`, because the output is always a ZIP. JXL is already entropy-coded —
+  deflate measured under 1% gain and costs real CPU on every page.
+- The input's own compression is not preserved. Re-inserting one member of a solid archive recompresses the
+  whole block, so untouched pages are recomputed and the source's internal layout is lost. Entry-level byte
+  fidelity still holds — a member extracted from a single-block archive is byte-exact — but layout fidelity
+  does not.
 - Build to a temp file in the destination directory, `fsync`, then `os.replace` onto
   `<name>.jxl.cbz`. `os.replace` is atomic within a filesystem; this is what guarantees CAP-4.
 - Clean up both the zip temp file and each per-page `.jxl` temp file on every exit path, including failure.
 
 ## Preflight
 
-Check for `cjxl` with `shutil.which` before opening any archive. On absence: exit non-zero naming the missing
-tool and pointing at the documentation, per CAP-5. The message must not be a stack trace.
+Check with `shutil.which`, in two severities.
 
-Platform-specific libjxl install instructions belong in **documentation, not CLI output**, and must cover all
+| Severity | Example | Checked | On absence |
+|---|---|---|---|
+| every run needs it | `cjxl` | before any archive opens | exit non-zero, the run stops |
+| only some inputs need it | a container archiver | after the input set is expanded | exit non-zero, only those inputs skipped |
+
+The second severity is decided by the recognised input suffix, never by sniffing the file's magic bytes: that
+would mean reading the file before knowing the tools are present. By-content detection belongs to the
+archiver at open time, where it belongs. A file whose suffix says ZIP and whose bytes are not is an
+unreadable archive, which is the answer it already gets.
+
+One message names every missing tool whatever the count, in severity order, and each says whether it stops
+the run or skips inputs. The message must not be a stack trace.
+
+A dry run needs exactly what a real run would, because it encodes every page to report real size figures
+rather than estimates.
+
+Platform-specific install instructions belong in **documentation, not CLI output**, and must cover all
 three supported platforms:
 
 | Platform | Notes for the docs |
 |---|---|
-| linux | distro package (`libjxl-tools`), which provides `cjxl` |
-| mac | Homebrew formula (`libjxl`) |
-| windows | libjxl release build on PATH, or a package manager |
+| linux | distro package (`libjxl-tools`), which provides `cjxl`; a `p7zip-full` or equivalent for the archiver |
+| mac | Homebrew formula (`libjxl`), and `p7zip` for the archiver |
+| windows | libjxl release build on PATH, or a package manager; 7-Zip for the archiver |
 
 Keep the CLI message platform-neutral so it does not go stale per platform.

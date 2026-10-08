@@ -1,0 +1,16 @@
+# tickets.toml — epic-archive-containers. Entry ids are stable.
+# The epic's frontmatter gates it on epic-bounded-downscaling, which supplies the naming rule at 1.3 and the
+# preflight shape at 1.5. The classification gate from 1.6 is the interface this epic fills rather than waits
+# on. Entry 1 is the amendment this epic's own References already claim it owns; it is listed before the code
+# entries because the spec forbids what they build, and a builder reading the contract would be misled.
+
+[[entry]]
+id = 1
+type = "story"
+title = "Spec: the container model, amended for RAR, CB7 and 7Z inputs"
+description = "Amends spec-cbz-jxl and both companions so the contract stops forbidding what this epic builds. The spec's Constraints say container handling is Python standard library only, that cjxl is the single external tool, and that page order is the source ZIP's stored order; all three contradict reading RAR, CB7 and 7Z. Reading those is an external-tool step because no standard-library module reads them, while writing stays zipfile, so the output is always ZIP and no proprietary writer is ever needed. CAP-5's success and the assumptions are amended to the preflight shape entry 1.5 fixed: tools carry a severity, and one that only some inputs need refuses only those inputs rather than the whole run. The heading, which names CBZ as the input, is corrected. This amends the text CAP-6 leaves behind rather than the spec as it stands today, so it carries entry 1.7's edit forward instead of reverting it. It does not touch the output name, which is R2's amendment and which entry 1.3 already rules on."
+verify = "The spec no longer contradicts this epic: reading a non-ZIP container is named as an external-tool step, page order is the source container's rather than the source ZIP's, the STORED rule is stated about output rather than about input, and CAP-5 states both severities including the carry-on behaviour entry 1.5 fixed. CAP-1 through CAP-4 are untouched and CAP-5's success is extended rather than replaced, so every existing success test still passes. The external-tool constraint is generalised to N tools rather than narrowed back to cjxl alone, leaving entry 1.7 free to apply CAP-6 on top, and a reader can tell from the spec alone which tools a given run needs."
+covers = ["R4"]
+after = ["1.5"]
+hitl = false
+risk = "low"

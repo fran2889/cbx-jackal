@@ -10,12 +10,12 @@ sources:
 
 > **Canonical contract.** This SPEC and the files in `companions:` are the complete, preservation-validated contract for what to build, test, and validate. Source documents listed in frontmatter are for traceability — consult them only if you need narrative rationale or prose color this contract intentionally omits.
 
-# cbx-jackal — CBZ to JXL page transcoder
+# cbx-jackal — comic archive page transcoder
 
 ## Why
 
-An opportunity to capture, on a pain that is already expensive. Owners of comic archives keep re-encoding
-the same JPEG pages and their storage keeps growing, because every tool available to them either re-encodes
+An opportunity to capture, on a pain that is already expensive. Owners of comic archives keep re-encoding the
+same JPEG pages and their storage keeps growing, because every tool available to them either re-encodes
 lossily or leaves the bytes alone. JPEG XL's lossless transcoding mode changed that: it re-encodes a JPEG
 page 19–48% smaller **with no quality loss**, and because libjxl embeds JPEG bitstream reconstruction data
 in that mode, the original JPEG stays byte-for-byte recoverable. That combination — smaller *and* lossless
@@ -50,24 +50,41 @@ because the capability exists and nothing exposes it as a safe, order-preserving
 - **CAP-5 — Honest prerequisites**
   - **intent:** An owner can start the tool and learn precisely what is missing instead of meeting a
     mysterious failure partway through a 200-page run.
-  - **success:** With `cjxl` absent, the tool exits non-zero before reading any archive, names the missing
-    tool, and points at the documentation covering linux, mac and windows install paths.
+  - **success:** With a tool the run needs absent, the tool exits non-zero, names every missing tool in a
+    single message, points at the documentation covering linux, mac and windows, and states whether the run
+    stops or only skips the inputs that need it. A tool every run needs stops the run before any archive is
+    opened; one only some inputs need converts the rest of the list and skips those inputs.
+
+- **CAP-7 — Read the containers collections actually arrive in**
+  - **intent:** An owner whose library is RAR, CB7 or 7Z converts it without unpacking it by hand first.
+  - **success:** A book in RAR, CB7 or 7Z converts to a CBZ whose entry order, entry count and entry bytes
+    match the source exactly. A corrupt or unreadable source leaves no output at all and exits non-zero. A
+    run whose only non-CBZ inputs need an absent archiver still converts every other input and exits
+    non-zero.
 
 ## Constraints
 
-- No Python imaging libraries. Container handling is Python standard library only.
-- `cjxl` is the single external tool, and is never bundled into the distribution — two libjxl copies on one
-  Linux host fight over global decoder handler registration, and the wrong one can win silently.
-- Page order is the source ZIP's stored entry order, verbatim. No natural sort, no renumbering, no repair
-  of archives whose ordering is already wrong. Readers own the sort; the tool never silently reorders a
-  book.
+- No Python imaging libraries. Reading and writing ZIP is Python standard library only, via `zipfile`.
+  Reading RAR, CB7 and 7Z is an external archiver step, because no standard-library module reads them.
+- The output container is always CBZ and is always written by `zipfile`, whatever the input container was.
+  No proprietary archiver writer is therefore ever required, and a converted book is indistinguishable from
+  one that arrived as a CBZ.
+- No external tool is ever bundled into the distribution. `cjxl` is required on every run; every other tool
+  is required only by CAP-5's severities. Two libjxl copies on one Linux host fight over global decoder
+  handler registration and the wrong one can win silently, which is why nothing is vendored.
+- Page order is the source container's stored entry order, verbatim: the `zipfile` order for ZIP, the
+  external archiver's listing order for RAR, CB7 and 7Z. No natural sort, no renumbering, no repair of
+  archives whose ordering is already wrong. Readers own the sort; the tool never silently reorders a book.
 - Output is always a new file `<name>.jxl.cbz` beside the input. Never in-place; never overwrite without an
   explicit force.
 - Output is atomic: build to a temp file in the destination directory, then rename. A failed run leaves no
   output file, never a partial one.
-- ZIP entries are STORED, never deflated.
-- The exit code is non-zero if and only if a JPEG entry failed to convert. Non-JPEG pass-throughs are
-  normal and must never make a healthy run look failed.
+- Entries in the output are STORED, never deflated, because the output is always a ZIP. The input's own
+  compression is not preserved: re-inserting one member of a solid archive recompresses the whole block, so
+  entry-level byte fidelity holds while the source's internal container layout does not.
+- The exit code is non-zero when a JPEG entry failed to convert, when a source could not be read, and when a
+  tool the run needed was absent or an existing output was refused. Non-JPEG pass-throughs are normal and
+  must never make a healthy run look failed. One refused path does not abandon the rest of the list.
 
 ## Non-goals
 
@@ -87,14 +104,24 @@ because the capability exists and nothing exposes it as a safe, order-preserving
 ## Success signal
 
 A 200-page comic converts in one command to an archive at least 19% smaller whose JPEG pages remain
-byte-identically recoverable, with zero entries lost, added or reordered — and a run containing a corrupt
-page leaves either a complete archive or none at all, never a partial one.
+byte-identically recoverable, with zero entries lost, added or reordered — whether it arrived as a CBZ, a
+ZIP, a RAR, a CB7 or a 7Z — and a run containing a corrupt page leaves either a complete archive or none at
+all, never a partial one.
 
 ## Assumptions
 
 - libjxl 0.11.1 behaviour generalises to the versions owners will have: implicit lossless-transcoding for
   JPEG input, `-q 100` meaning mathematically lossless, and embedded reconstruction data. Verified on this
   version only.
-- Python 3's `zipfile` suffices — it reads stored entry order reliably and writes STORED entries, including
-  ZIP64 for large archives.
-- `cjxl` is on the owner's PATH, or discoverable once the preflight message points them at the documentation.
+- Python 3's `zipfile` suffices for the output container and for reading ZIP: it reads stored entry order
+  reliably and writes STORED entries, including ZIP64 for large archives. It does not read RAR, CB7 or 7Z,
+  and nothing in the standard library does.
+- External tools are expected on PATH, or discoverable once the preflight names them and points at the
+  documentation. No vendored copy of any of them.
+
+## Open Questions
+
+- Encrypted or password-protected archives are unaddressed. Should such an input be refused with an
+  owner-facing message naming the password, skipped the way a missing tool is skipped, or passed through
+  untouched? RAR and 7Z both support encryption and comic collections containing it are common, so the tool
+  will meet them.
