@@ -205,6 +205,51 @@ that the other three epics wait on. Not the output format (epic-webp-target), no
   that sees both the flags and every outcome, so it alone states what can be recovered, and it derives that
   from the outcomes plus the box — never from a defaulted argument. `render()`'s `quality=None` default must
   never reach a losslessness claim, which is the way today's two decision sites came to disagree.
+- **Contract `1.6`, the classification gate and the source seam (2026-10-08).** Settled by the maintainer and
+  recorded here rather than in the spec, as that entry directs. The last of the four contracts, and the
+  interface `epic-archive-containers` fills rather than waits on.
+
+  **`classify` does not change.** It still decides from the name alone, and that is the point: it is why the
+  tool never guesses wrong about content. The extension is a seam *below* the gate — how a source is opened,
+  enumerated and read — not a change to the gate. A later entry must not make `classify` content-aware to
+  "improve" it; that property is load-bearing, and CAP-3's pass-through guarantee rests on it.
+
+  **What a source must provide, whatever it is.** The pipeline is coupled to `zipfile` in six places today:
+  the open, the enumeration, the names handed to the gate, the per-entry pairing, the byte read, and
+  `_stored_info`. The seam is the one thing that replaces all six, and a source offers exactly three things:
+
+  1. **Its entry names, in order.** The order is supplied, never inferred. A reader that staged its extraction
+     to a directory and then walked it would return filesystem order, and R4's "entry count and order
+     identical to the source" would be unenforceable. Nothing sorts, and nothing infers order from a walk.
+  2. **The bytes of one named entry.** A read that fails is an `ArchiveError` naming that entry, exactly as
+     `_read_entry` does today for an encrypted member or an undecodable compression method.
+  3. **An optional per-entry output template.** See below.
+
+  **An output entry's metadata is optional, with a documented default.** `_stored_info` copies `date_time`,
+  `external_attr`, `internal_attr`, `create_system` and `comment` from the source `ZipInfo`, and a RAR entry
+  has no `ZipInfo` at all. So the template is optional: a reader that can supply real values does, and one
+  that cannot supplies a stated constant. A reader is never *required* to produce a template, because that
+  would make timestamp support a precondition for reading a RAR — a `7z` build without it would be
+  unreadable rather than degraded. ZIP input is unaffected: it keeps carrying its own metadata, byte for
+  byte, which R4's Done-when 5 requires.
+
+  **A reader's filesystem effects are bounded by this contract, not deferred.** `discover.py` already refuses
+  to follow a symlink found by a scan, because a scan's inputs are untrusted. An archive's *contents* are
+  untrusted by the same standard, and a staged extraction would materialise them. So: a reader creates
+  **regular files only**, inside a directory the tool owns, and cleans up on **every** exit path the way
+  `encode.run` already does. An entry that is a symbolic link, a hard link or a device is refused rather
+  than extracted — never materialised and then inspected. The container epic may add to this contract; it
+  may not quietly relax it.
+
+  **A reader is chosen by the recognised input suffix, with no fallback.** Per `1.5`, a file whose suffix
+  says ZIP and whose bytes are not is an unreadable archive, exit 1 — the answer it gets today. By-content
+  detection is the reader's own business at open time, which is where the measurement put it. A stub reader
+  that tries every reader in turn is a different tool with different failure modes, and is not a stub.
+
+  **This contract settles no reader.** Reader protocol against staged extraction is
+  `epic-archive-containers`' call at its inception, not this entry's. The interface is the same either way: a
+  reader that streams still offers names-in-order and read-one, and a reader that stages still offers
+  names-in-order and read-one. Only its cost and its temp-file discipline differ.
 - **Contract `1.5`, the preflight shape for N external tools (2026-10-08).** Settled by the maintainer and
   recorded here rather than in the spec, as that entry directs.
 
