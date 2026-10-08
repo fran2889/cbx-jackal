@@ -3,7 +3,7 @@ title: 'Preflight: N tools, two severities, one message'
 type: 'feature'
 ticket: '3'
 created: '2026-10-08'
-status: 'built'
+status: done
 baseline_revision: '927c658'
 route: 'full'
 route_source: 'auto'
