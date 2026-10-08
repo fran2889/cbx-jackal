@@ -88,6 +88,53 @@ cjxl --version   # JPEG XL encoder v0.11.1
 djxl --version
 ```
 
+## Installing 7z
+
+A CB7, 7Z, or RAR input also needs the `7z` command from 7-Zip / p7zip.
+`7z` is **never bundled**: a system binary is used, and nothing here installs it
+for you.
+
+`7z` must be available as `7z`, not `7zz` or `7za`. Systems that ship only
+`7zz` (some Linux distributions) or `7za` (the "AES" variant) need a `7z`
+symlink or alias pointing to it, because the tool checks for `7z` by that name.
+
+### Linux
+
+Your distribution's p7zip package provides `7z`:
+
+```bash
+# Debian, Ubuntu
+sudo apt install p7zip-full
+
+# Fedora
+sudo dnf install p7zip
+
+# Arch
+sudo pacman -S p7zip
+```
+
+### macOS
+
+```bash
+brew install p7zip
+```
+
+Then put Homebrew's `bin` on your `PATH` if it is not already:
+`export PATH="$(brew --prefix)/opt/p7zip/bin:$PATH"`.
+
+### Windows
+
+Download 7-Zip from the [7-Zip website](https://www.7-zip.org/) and put
+`7z.exe` on your `PATH`. Alternatively use whichever package manager you
+already have — scoop, winget, chocolatey — if it ships 7-Zip under a name you
+can confirm with `7z` afterwards.
+
+### Verify
+
+```bash
+7z --help
+```
+
 cbx-jackal checks for `cjxl` **before opening any archive**, so a missing
 dependency is reported up front rather than discovered 150 pages into a run:
 
@@ -102,8 +149,8 @@ cjxl was not found on PATH.
 ## Install
 
 Python 3.9 or newer. No Python dependencies at all — container handling is the
-standard library, with no Python imaging libraries. A CB7 or 7Z input also needs
-the `7z` command, which is never bundled.
+standard library, with no Python imaging libraries. A CB7, 7Z, or RAR input
+also needs the `7z` command (see [Installing 7z](#installing-7z) above).
 
 ```bash
 pip install .
@@ -160,7 +207,7 @@ pattern.
 
 | | Behaviour |
 |---|---|
-| **Scanned** | `.cbz` and `.zip`, any case. Nothing else — `notes.txt` beside the books is ignored, not reported as unreadable. |
+| **Scanned** | `.cbz`, `.zip`, `.cb7`, `.7z`, `.rar`, any case. Nothing else — `notes.txt` beside the books is ignored, not reported as unreadable. |
 | **Not descended into** | Subdirectories, unless `--recursive` is given. A pattern is never recursive: `**` behaves as `*`. |
 | **Where output lands** | Beside each input, mirroring the tree. `lib/a/book.cbz` → `lib/a/book.jxl.cbz`; nothing is hoisted or flattened. |
 | **Output name** | Always `<stem>.<format>.cbz`, where `<format>` is what `--format` names. `book.zip` yields `book.jxl.cbz`, never `book.jxl.zip`. |
@@ -184,6 +231,15 @@ paths, so a bad archive in the middle still does not abandon the batch.
 | `0` | Every JPEG page converted. Pass-through entries never affect this. |
 | `1` | At least one JPEG page failed to convert, or an archive was unreadable. |
 | `2` | Usage error, a missing tool (`cjxl` always, `7z` when an input needs it), or the output already exists without `--force`. |
+
+## Container-specific behaviour
+
+| Container | Behaviour |
+|---|---|
+| **CBZ, ZIP** | Standard library only. No external tools. |
+| **CB7, 7Z, RAR** | Uses `7z` for reading; output is always CBZ. |
+| **Solid archives (7Z, CB7)** | Every entry is stored byte-exact, but the internal container layout is **not preserved** — re-inserting one member re-deflates the whole block. |
+| **Encrypted archives** | Refused with a message naming the archive as encrypted; exit code 1; **every other input in the run still converts**. |
 
 ## What happens to each entry
 
