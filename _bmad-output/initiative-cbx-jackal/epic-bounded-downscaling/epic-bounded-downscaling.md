@@ -150,6 +150,61 @@ that the other three epics wait on. Not the output format (epic-webp-target), no
   entry 11 adds only the two box flags. The flag needs a home before entry 6 starts, and the honest one is
   entry 11 or a new entry alongside it: `--format` accepted, `jxl` the only legal value, `webp` arriving
   with epic-webp-target. Left unowned it would be settled twice, once by the rule and once by the CLI.
+- **Contract `1.4`, the per-page outcome vocabulary (2026-10-08).** Settled by the maintainer and recorded
+  here rather than in the spec, as that entry directs.
+
+  **Downscaled and spread-exempt are not classes.** The three classes stay three, because they are an
+  exit-code contract and `not converted` is the only one that drives a non-zero exit. A downscaled page is
+  still `converted`; what changed is its reversibility. A spread-exempt page is also still `converted`, still
+  source-recoverable, and differs in nothing but that it is named — so it is a report line, not a state.
+
+  **One page's reversibility takes one of four values**, named for what the owner gets back rather than for
+  how it happened:
+
+  | value | meaning |
+  |---|---|
+  | `source` | `djxl` reproduces the source JPEG byte-for-byte |
+  | `pixels` | exact pixels survive, the source JPEG file does not |
+  | `intermediate` | `djxl` returns a stand-in that is itself lossy against the source |
+  | `none` | lossy; nothing recovers the page |
+
+  Four rather than three because the lossless-intermediate case is a genuinely stronger guarantee than the
+  JPEG-intermediate one, and one pair of words cannot honestly carry both. Which values are *reachable*
+  depends on entry 9's undecided intermediate — a lossless intermediate makes `pixels` the value for every
+  downscaled page and `intermediate` unreachable, a JPEG one does the reverse — so the vocabulary is fixed
+  at this shape deliberately: whichever way entry 9 rules, no wording changes.
+
+  **Exact per-page wording**, one line each, dimensions being the display box on both sides because that is
+  what the box rule compared and what the output contains:
+
+  ```
+  page003.jpg: downscaled 2480x3508 -> 1600x2260, pixels recoverable, source JPEG not
+  page003.jpg: downscaled 2480x3508 -> 1600x2260, recoverable as the intermediate only
+  page007.jpg: spread kept at 2480x1500, exempt from the width rule
+  ```
+
+  **Exact run-level mode line**, three cases. The first two are byte-identical to today, because a run that
+  downscaled nothing must be byte-for-byte the run it is:
+
+  ```
+  mode: lossless (JPEG bytes recoverable with djxl)
+  mode: lossy, quality 90 (JPEG bytes NOT recoverable)
+  mode: lossless, 3 of 15 pages downscaled (pixels recoverable, source JPEG not)
+  mode: lossless, 3 of 15 pages downscaled (recoverable as the intermediate only)
+  ```
+
+  The breakdown appears only when the mode is lossless and at least one page was downscaled. In a lossy run
+  every page is `none`, so the existing parenthetical already says it and a breakdown would be arithmetic.
+  Counts are over converted pages, so they reconcile with the summary line beneath. The clause carries the
+  *value name*, not a count per value, because within a run every downscaled page shares one value and the
+  arithmetic would be redundant — what the owner needs is which of the two weaker guarantees they have.
+
+  **Reversibility is claimed in exactly one place, and it is not `is_lossless`.** `encode.is_lossless` keeps
+  answering only "what argv do I build", which is a legitimate separate question: a run with a box and no
+  `--quality` is lossless in argv and not byte-recoverable at the same time. The report is the only layer
+  that sees both the flags and every outcome, so it alone states what can be recovered, and it derives that
+  from the outcomes plus the box — never from a defaulted argument. `render()`'s `quality=None` default must
+  never reach a losslessness claim, which is the way today's two decision sites came to disagree.
 - **Contract `1.5`, the preflight shape for N external tools (2026-10-08).** Settled by the maintainer and
   recorded here rather than in the spec, as that entry directs.
 
