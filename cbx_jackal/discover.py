@@ -18,8 +18,9 @@ Four rules make expansion safe rather than merely convenient:
   race for one destination, so the existing-output refusal would fire for reasons
   that look like a bug. A symlink *named on the command line* is followed,
   because the user named it; that is not a loop hazard.
-- **Skip this tool's own output.** A `.jxl.cbz` would otherwise be rescanned and
-  become `a.jxl.jxl.cbz` on the second run over the same directory.
+- **Skip this tool's own output.** A `<stem>.<format>.cbz` for any declared
+  format would otherwise be rescanned and become `a.jxl.jxl.cbz` on the second
+  run over the same directory.
 
 Order is deterministic: each directory's own entries are sorted, then descended
 into depth-first, and pattern matches are sorted too -- `glob` returns
@@ -48,16 +49,51 @@ from typing import Iterator
 #: because comic libraries are full of `.CBZ`.
 ARCHIVE_SUFFIXES = (".cbz", ".zip")
 
-#: The fixed suffix on every output. `book.zip` becomes `book.jxl.cbz`, never
-#: `book.jxl.zip`: the suffix after `.jxl` does not vary with the input.
-#: `archive.destination_for` reads this same value, so the scan's skip and the
-#: converter's output name cannot drift apart.
-OUTPUT_SUFFIX = ".jxl.cbz"
+#: The container every output is written in, whatever the input was. `book.zip`
+#: becomes `book.jxl.cbz`, never `book.jxl.zip`: once converted, a book is
+#: indistinguishable from one that arrived as a `.cbz`, which is what keeps a
+#: RAR or CB7 input honest about what it now is.
+CONTAINER_SUFFIX = ".cbz"
+
+#: The page formats an output may be named after. `jxl` is the only one that
+#: converts today; `webp` arrives with its own entry, and adding it here is the
+#: whole of what that entry needs to say about naming.
+PAGE_FORMATS = ("jxl",)
+
+#: The format used when `--format` is absent. Declared beside the set rather
+#: than read off its end, so the default is a value the CLI can validate like
+#: any other instead of one that silently escapes the check.
+DEFAULT_FORMAT = "jxl"
 
 #: What makes an argument a pattern rather than a literal path. `]` alone is not
 #: magic: it is an ordinary character in a filename, and globbing on it would be
 #: surprising for a reason no user asked for.
 GLOB_MAGIC = ("*", "?", "[")
+
+
+def output_suffix(page_format: str = DEFAULT_FORMAT) -> str:
+    """The suffix an output in `page_format` carries: `.jxl.cbz` today.
+
+    Raises `ValueError` for anything not declared in `PAGE_FORMATS`. The check
+    belongs here rather than at the call sites because this is the one place an
+    output name is built: a name this tool cannot produce is a name its own scan
+    hands straight back in, and a format carrying a path separator would escape
+    the input's directory besides.
+    """
+    if page_format not in PAGE_FORMATS:
+        supported = ", ".join(PAGE_FORMATS)
+        raise ValueError(
+            f"unsupported page format {page_format!r}; "
+            f"supported formats are {supported}"
+        )
+    return f".{page_format}{CONTAINER_SUFFIX}"
+
+
+#: The suffix on every output when no `--format` is given. Derived rather than
+#: written out, so it cannot drift from `output_suffix`. New code should prefer
+#: `is_output_name`: a reader that filters on this constant quietly stops
+#: covering WebP the day that format lands.
+OUTPUT_SUFFIX = output_suffix()
 
 
 def has_magic(name: str) -> bool:
@@ -70,14 +106,30 @@ def has_magic(name: str) -> bool:
     return any(character in name for character in GLOB_MAGIC)
 
 
+def is_output_name(name: str) -> bool:
+    """Whether `name` is an output this tool could have written.
+
+    One suffix per declared format, not "any dotted word before `.cbz`". A
+    `.cbz` this tool cannot name is still a book worth converting, and skipping
+    it because its stem happens to contain a dot would drop it without a word;
+    the day a second format is declared, its outputs are covered here by adding
+    to `PAGE_FORMATS` and by nothing else.
+    """
+    lowered = name.lower()
+    return any(
+        lowered.endswith(output_suffix(page_format)) for page_format in PAGE_FORMATS
+    )
+
+
 def is_archive(name: str) -> bool:
     """Whether `name` is an input this tool converts.
 
-    An `OUTPUT_SUFFIX` name is excluded even though `.cbz` is in
+    An output of this tool is excluded even though `.cbz` is in
     `ARCHIVE_SUFFIXES`, so rescanning a converted directory is a no-op rather
-    than a second generation of output.
+    than a second generation of output. Which names those are comes from
+    `is_output_name`, the same declaration the output name is built from.
     """
-    if name.lower().endswith(OUTPUT_SUFFIX):
+    if is_output_name(name):
         return False
     return os.path.splitext(name)[1].lower() in ARCHIVE_SUFFIXES
 

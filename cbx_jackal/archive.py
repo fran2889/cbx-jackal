@@ -20,7 +20,7 @@ import zipfile
 from dataclasses import dataclass
 
 from . import encode
-from .discover import OUTPUT_SUFFIX
+from .discover import DEFAULT_FORMAT, output_suffix
 from .report import CONVERTED, NOT_CONVERTED, PASSED_THROUGH, EntryOutcome, Report
 
 #: Extensions whose entries are handed to `cjxl`. Case-insensitive: comic
@@ -95,19 +95,25 @@ def classify(name: str) -> OutputPlan:
     return OutputPlan(name, name, transcode=False)
 
 
-def destination_for(path: str) -> str:
-    """`<name>.jxl.cbz` beside the input. Never in-place.
+def destination_for(path: str, page_format: str = DEFAULT_FORMAT) -> str:
+    """`<name>.<format>.cbz` beside the input. Never in-place.
 
-    The suffix comes from `discover.OUTPUT_SUFFIX`, the single place it is
+    The suffix comes from `discover.output_suffix`, the single place it is
     declared, because this function and the directory scan's skip of this tool's
-    own output have to agree. Two literals would drift: change the output suffix
-    here alone and a rescan would skip `.jxl.cbz` while this wrote `.jxl.zip`,
-    recreating the very `a.jxl.jxl.cbz` the skip exists to prevent.
+    own output have to agree. Two literals would drift: name the format segment
+    in one place only and a rescan would skip one output while this wrote
+    another, so an already-converted book would come back as a second
+    generation -- the very `a.jxl.jxl.cbz` the skip exists to prevent.
+
+    `page_format` is defaulted rather than required: `--format jxl` has to be
+    the run without the flag, byte for byte, and a required parameter cannot be
+    that. A format outside `discover.PAGE_FORMATS` raises `ValueError` rather
+    than producing a name the scan would re-ingest.
     """
     directory = os.path.dirname(os.path.abspath(path))
     stem = os.path.basename(path)
     stem = os.path.splitext(stem)[0]
-    return os.path.join(directory, stem + OUTPUT_SUFFIX)
+    return os.path.join(directory, stem + output_suffix(page_format))
 
 
 def collision_key(output_name: str) -> str:
@@ -204,14 +210,25 @@ class Converter:
     file is published at all. Without it, a failed page is copied through under
     its original name so the archive stays complete, and the exit code is
     non-zero.
+
+    `page_format` is the segment between the stem and the container in every
+    output name, and nothing else: the bytes written are the same either way
+    until a second format is one this tool can encode.
     """
 
-    def __init__(self, cjxl: str, quality: int | None = None, strict: bool = False):
+    def __init__(
+        self,
+        cjxl: str,
+        quality: int | None = None,
+        strict: bool = False,
+        page_format: str = DEFAULT_FORMAT,
+    ):
         if not cjxl:
             raise ArchiveError("cjxl path is required; run the preflight first")
         self.cjxl = cjxl
         self.quality = quality
         self.strict = strict
+        self.page_format = page_format
 
     def convert(
         self,
@@ -219,13 +236,13 @@ class Converter:
         force: bool = False,
         dry_run: bool = False,
     ) -> Report:
-        """Convert `path`, publishing `<name>.jxl.cbz` atomically.
+        """Convert `path`, publishing `<name>.<format>.cbz` atomically.
 
         Returns a `Report`. Raises `ArchiveError` only when no output could be
         produced at all; the exception carries the partial `report` so the caller
         can still name the pages that failed.
         """
-        destination = destination_for(path)
+        destination = destination_for(path, self.page_format)
         report = Report(source=path, destination=destination)
 
         # A dry run writes nothing, so an existing output cannot collide with it.

@@ -106,6 +106,16 @@ class Classification(unittest.TestCase):
             os.path.abspath("book.jxl.cbz"), destination_for("book.cbz")
         )
 
+    def test_the_destination_refuses_a_format_it_cannot_name(self):
+        # The name builder is the one place a suffix is built, so the check
+        # belongs there: an output this tool's scan would hand straight back in
+        # is the drift `destination_for` exists to prevent, and a format
+        # carrying a separator would escape the input's directory besides.
+        for page_format in ("webp", "", "../../etc/evil", "JXL", "jxl.cbz"):
+            with self.subTest(page_format=page_format):
+                with self.assertRaises(ValueError):
+                    destination_for("/lib/book.cbz", page_format)
+
     def test_plan_preserves_order(self):
         names = ["z.jpg", "a.jpg", "ComicInfo.xml", "m.jpg"]
         self.assertEqual(names, [p.name for p in build_plan(names)])
@@ -836,9 +846,132 @@ class CliSurface(ArchiveTestCase):
             for action in parser._actions
             for option in action.option_strings
         }
-        for flag in ("--quality", "--strict", "--dry-run", "--force", "--recursive"):
+        for flag in (
+            "--quality",
+            "--format",
+            "--strict",
+            "--dry-run",
+            "--force",
+            "--recursive",
+        ):
             with self.subTest(flag=flag):
                 self.assertIn(flag, options)
+
+    def test_the_format_flag_matches_the_run_without_it_byte_for_byte(self):
+        # Row 2 of the matrix, and the reason the flag is threaded as a default:
+        # --format jxl has to be the flagless run, not merely an equivalent one.
+        # Two directories, so neither run has to force over the other.
+        without = self.make_dir("without")
+        flagged = self.make_dir("flagged")
+        plain = self.make_archive(without, "book.cbz")
+        explicit = self.make_archive(flagged, "book.cbz")
+
+        code, _, err = self.capture([plain])
+        self.assertEqual(0, code, err)
+        code, _, err = self.capture([explicit, "--format", "jxl"])
+        self.assertEqual(0, code, err)
+
+        self.assertEqual(
+            read_bytes(os.path.join(without, "book.jxl.cbz")),
+            read_bytes(os.path.join(flagged, "book.jxl.cbz")),
+        )
+
+    def test_the_parsed_format_reaches_the_converter(self):
+        # `jxl` is both the default and the only legal value, so the bytes on
+        # disk cannot tell a threaded --format from an ignored one. The call
+        # can: the parsed value has to arrive as `page_format` rather than
+        # falling back to a constructor default that happens to hold the same
+        # string today and would not when a second format lands.
+        recorded = {}
+        real_converter = cli.Converter
+
+        class RecordingConverter(real_converter):
+            def __init__(self, *args, **kwargs):
+                recorded.update(kwargs)
+                super().__init__(*args, **kwargs)
+
+        cli.Converter = RecordingConverter
+        self.addCleanup(setattr, cli, "Converter", real_converter)
+
+        code, _, err = self.capture(
+            [self.make_archive(self.tmp, "book.cbz"), "--format", "jxl"]
+        )
+
+        self.assertEqual(0, code, err)
+        self.assertIn("page_format", recorded, "--format never reached the Converter")
+        self.assertEqual("jxl", recorded["page_format"])
+
+    def test_a_zip_input_with_the_flag_is_still_a_jxl_cbz(self):
+        self.make_archive(self.tmp, "book.zip")
+
+        code, _, err = self.capture([self.tmp, "--format", "jxl"])
+
+        self.assertEqual(0, code, err)
+        self.assertTrue(os.path.exists(self.path("book.jxl.cbz")))
+        self.assertFalse(os.path.exists(self.path("book.jxl.zip")))
+
+    def test_an_unsupported_format_is_a_usage_error_that_writes_nothing(self):
+        source = self.make_archive(self.tmp, "book.cbz")
+        from contextlib import redirect_stderr
+
+        captured = io.StringIO()
+        with redirect_stderr(captured):
+            with self.assertRaises(SystemExit) as caught:
+                cli.main([source, "--format", "webp"])
+
+        message = captured.getvalue()
+        self.assertEqual(cli.EXIT_ENVIRONMENT, caught.exception.code)
+        self.assertIn("webp", message)
+        self.assertIn("unsupported", message)
+        self.assertNotIn("Traceback", message)
+        self.assertEqual(["book.cbz"], os.listdir(self.tmp))
+        self.assertNoTempFiles()
+
+    def test_a_case_variant_of_the_format_is_accepted_and_normalised(self):
+        # Case-insensitive the way every suffix table in the tool is, and the
+        # name comes out in the declared spelling either way.
+        code, out, err = self.capture(
+            [self.make_archive(self.tmp, "book.cbz"), "--format", "JXL"]
+        )
+
+        self.assertEqual(0, code, err)
+        self.assertTrue(os.path.exists(self.path("book.jxl.cbz")))
+        self.assertFalse(os.path.exists(self.path("book.JXL.cbz")))
+        self.assertIn("book.cbz -> ", out)
+
+    def test_an_unsupported_format_message_names_an_empty_value(self):
+        from contextlib import redirect_stderr
+
+        captured = io.StringIO()
+        with redirect_stderr(captured):
+            with self.assertRaises(SystemExit):
+                cli.main([self.make_archive(self.tmp, "book.cbz"), "--format", ""])
+
+        # Rendered, so the message still reads as a value rather than as
+        # `unsupported --format ;`.
+        self.assertIn("unsupported --format ''", captured.getvalue())
+
+    def test_the_format_is_checked_before_the_preflight(self):
+        # cjxl is off PATH here, so a message about `webp` at all is the proof:
+        # the other order exits 2 as well, naming the tool instead.
+        source = self.make_archive(self.tmp, "book.cbz")
+        real_which = shutil.which
+        shutil.which = lambda name, *a, **k: None if name == "cjxl" else real_which(
+            name, *a, **k
+        )
+        self.addCleanup(setattr, shutil, "which", real_which)
+        from contextlib import redirect_stderr
+
+        captured = io.StringIO()
+        with redirect_stderr(captured):
+            with self.assertRaises(SystemExit) as caught:
+                cli.main([source, "--format", "webp"])
+
+        message = captured.getvalue()
+        self.assertEqual(cli.EXIT_ENVIRONMENT, caught.exception.code)
+        self.assertIn("webp", message)
+        self.assertNotIn("cjxl", message)
+        self.assertEqual(["book.cbz"], os.listdir(self.tmp))
 
 
 class MisnamedEntry(ArchiveTestCase):
@@ -1517,6 +1650,36 @@ class ArchiveSuffixes(unittest.TestCase):
                     discover.is_archive(produced),
                     "the converter's output must be invisible to a scan",
                 )
+
+    def test_the_output_suffix_is_the_container_after_the_default_format(self):
+        # Derived rather than written out, which is what keeps the literal
+        # assertion above and the tests reaching it through `report_sources`
+        # true without being edited. The container does not vary with the format
+        # any more than it varies with the input.
+        self.assertEqual(".cbz", discover.CONTAINER_SUFFIX)
+        self.assertIn(discover.DEFAULT_FORMAT, discover.PAGE_FORMATS)
+        self.assertEqual(
+            f".{discover.DEFAULT_FORMAT}{discover.CONTAINER_SUFFIX}",
+            discover.OUTPUT_SUFFIX,
+        )
+
+    def test_every_declared_format_names_an_output_the_scan_skips(self):
+        # The rescan skip reads the declared set, so adding a format to it is
+        # the only change a new format needs to be skipped rather than refed in.
+        for page_format in discover.PAGE_FORMATS:
+            with self.subTest(page_format=page_format):
+                name = f"book.{page_format}.cbz"
+                self.assertTrue(discover.is_output_name(name))
+                self.assertTrue(discover.is_output_name(name.upper()))
+                self.assertFalse(discover.is_archive(name))
+
+    def test_an_output_name_is_one_this_tool_could_have_written(self):
+        # Not "any dotted word before .cbz": a book this tool cannot name is
+        # still a book, and skipping it would drop it without a word.
+        for name in ("book.cbz", "vol.1.cbz", "book.webp.cbz"):
+            with self.subTest(name=name):
+                self.assertFalse(discover.is_output_name(name))
+                self.assertTrue(discover.is_archive(name))
 
 
 class PatternRecognition(unittest.TestCase):

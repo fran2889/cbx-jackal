@@ -29,12 +29,13 @@ exit codes:
 A path may be an archive, a directory, or a wildcard pattern such as
 'lib/*.cbz'. A directory is scanned for archives in sorted order and each
 archive is converted where it sits; subdirectories are left alone unless
---recursive is given. Already-converted .jxl.cbz files are skipped, and an
+--recursive is given. Already-converted .<format>.cbz files are skipped, and an
 archive named more than once is converted once. A directory or pattern that
 matches nothing is a note, not an error. Quote a pattern so the shell does not
 expand it before this tool sees it.
 
-The output is always a new file named <input>.jxl.cbz beside the input. The
+The output is always a new file named <input>.<format>.cbz beside the input,
+where <format> is what --format names -- .cbz never varies with the input. The
 input is never modified. Requires cjxl from the libjxl tools package; see
 README.md -> Installing cjxl.
 """
@@ -78,6 +79,18 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--format",
+        dest="page_format",
+        default=discover.DEFAULT_FORMAT,
+        metavar="FMT",
+        help=(
+            "page format of the output; legal values: "
+            f"{', '.join(discover.PAGE_FORMATS)}. The output is named "
+            "<input>.<format>.cbz either way, and the container never varies "
+            "with the input. Default: %(default)s."
+        ),
+    )
+    parser.add_argument(
         "--strict",
         action="store_true",
         help=(
@@ -93,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="overwrite an existing <name>.jxl.cbz",
+        help="overwrite an existing <name>.<format>.cbz",
     )
     parser.add_argument(
         "--version",
@@ -111,12 +124,35 @@ def _validate_quality(quality: int | None) -> int | None:
     return quality
 
 
+def _validate_format(page_format: str) -> str:
+    """Reject a format this tool cannot name an output after, in any case.
+
+    A usage error rather than a fallback to the default: a run asked for WebP
+    and handed back JXL is worse than a run that refused, because the name it
+    writes still looks like what was asked for. Case is folded the way the
+    suffix tables fold it, and the declared spelling comes back so the output
+    name never varies with how the flag was typed. The offending value is
+    rendered as it was given, so an empty one still reads as a value.
+    """
+    for supported in discover.PAGE_FORMATS:
+        if page_format.casefold() == supported.casefold():
+            return supported
+    raise ValueError(
+        f"unsupported --format {page_format!r}; supported formats are "
+        f"{', '.join(discover.PAGE_FORMATS)}"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    # Both checks raise, and `parser.error` exits 2 from inside this try: a bad
+    # flag is answered before the preflight, so it costs no tool on PATH and
+    # opens nothing.
     try:
         quality = _validate_quality(args.quality)
+        page_format = _validate_format(args.page_format)
     except ValueError as exc:
         parser.error(str(exc))
 
@@ -132,7 +168,9 @@ def main(argv: list[str] | None = None) -> int:
     # and each expanded path keeps its own report and error handling.
     paths = discover.expand(args.paths, recursive=args.recursive)
 
-    converter = Converter(cjxl, quality=quality, strict=args.strict)
+    converter = Converter(
+        cjxl, quality=quality, strict=args.strict, page_format=page_format
+    )
     exit_code = EXIT_OK
 
     for path in paths:

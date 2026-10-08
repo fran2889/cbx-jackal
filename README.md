@@ -115,19 +115,21 @@ python3 -m cbx_jackal.cli book.cbz
 ## Usage
 
 ```
-cbx-jackal CBZ|DIR|PATTERN [CBZ|DIR|PATTERN ...] [--recursive] [--quality N] [--strict] [--dry-run] [--force]
+cbx-jackal CBZ|DIR|PATTERN [CBZ|DIR|PATTERN ...] [--recursive] [--quality N] [--format FMT] [--strict] [--dry-run] [--force]
 ```
 
 | Flag | Meaning |
 |---|---|
 | `--recursive`, `-r` | Descend into subdirectories when a path is a directory. |
 | `--quality N` | Encode lossy at quality 1–100 instead of losslessly. Surrenders byte-for-byte JPEG recovery. 100 and above is lossless. |
+| `--format FMT` | Page format of the output; legal values: `jxl`. The output is named `<input>.<format>.cbz` either way, and the container never varies with the input. Default: `jxl`. |
 | `--strict` | Write nothing at all if any page fails to convert, instead of copying the failed page through and completing the archive. |
 | `--dry-run` | Report the plan and the real size figures without writing anything. |
-| `--force` | Overwrite an existing `<name>.jxl.cbz`. |
+| `--force` | Overwrite an existing `<name>.<format>.cbz`. |
 
-Output is always a **new file** `<input>.jxl.cbz` beside the input. Never
-in-place, never without `--force`. The input archive is never modified.
+Output is always a **new file** `<input>.<format>.cbz` beside the input, where
+`<format>` is what `--format` names. Never in-place, never without `--force`.
+The input archive is never modified.
 
 ### Converting a whole directory, or a pattern
 
@@ -158,8 +160,8 @@ pattern.
 | **Scanned** | `.cbz` and `.zip`, any case. Nothing else — `notes.txt` beside the books is ignored, not reported as unreadable. |
 | **Not descended into** | Subdirectories, unless `--recursive` is given. A pattern is never recursive: `**` behaves as `*`. |
 | **Where output lands** | Beside each input, mirroring the tree. `lib/a/book.cbz` → `lib/a/book.jxl.cbz`; nothing is hoisted or flattened. |
-| **Output name** | Always `<stem>.jxl.cbz`. `book.zip` yields `book.jxl.cbz`, never `book.jxl.zip`. |
-| **Already converted** | `.jxl.cbz` files are skipped, so rescanning a directory does not produce `a.jxl.jxl.cbz`. |
+| **Output name** | Always `<stem>.<format>.cbz`, where `<format>` is what `--format` names. `book.zip` yields `book.jxl.cbz`, never `book.jxl.zip`. |
+| **Already converted** | `<stem>.<format>.cbz` files, for every declared format, are skipped, so rescanning a directory does not produce `a.jxl.jxl.cbz`. |
 | **Symlinks** | Not followed when *found by a scan*. A symlink you name yourself is followed, because you named it. |
 | **Order** | Sorted, each directory's own entries, depth-first, and pattern matches sorted too. Two runs over the same tree process the same archives in the same order. |
 | **Named twice** | Converted once. `cbx-jackal lib lib/a.cbz` gives one report block, in the order first reached. |
