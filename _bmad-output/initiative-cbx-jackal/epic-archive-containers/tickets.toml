@@ -14,3 +14,114 @@ covers = ["R4"]
 after = ["1.5"]
 hitl = false
 risk = "low"
+
+[[entry]]
+id = 2
+type = "story"
+title = "Read a CB7 or 7Z and convert it end to end"
+description = "The tracer bullet: registers a staged-extraction reader for the containers 7z reads, adds their suffixes to the scan, adds a minimal input-driven 7z check, and converts one book to <stem>.jxl.cbz with entry order, count and bytes preserved. Owns the fixture builder the later entries extend, and contract 1.6's filesystem-effects clause: an entry that is a link or a device is refused rather than materialised, and no temp file survives any exit path."
+verify = "cbx-jackal book.cb7 writes book.jxl.cbz; its entries are in the source's order, the page is .jxl, and every non-converted entry is byte-identical to the source's. With 7z absent it exits non-zero naming 7z before opening anything. A source holding a link entry is refused rather than materialised, and no temp file survives a failed run."
+covers = ["R4"]
+after = []
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Preflight: N tools, two severities, one message"
+description = "Generalises the check entry 2 added to the shape contract 1.5 fixed: N tools, each required by a flag or by an input, one message naming every missing tool rather than one per tool, and an input-driven tool refusing only the inputs that need it while the rest of the list converts. Entry 1.11 of epic-bounded-downscaling adds magick to this shape."
+verify = "With 7z absent and a .cb7 beside a .cbz, the .cbz converts, the .cb7 is refused, one message names 7z, exit 2. With cjxl absent as well, the same single message names both tools."
+covers = ["R4"]
+after = [2]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Fixtures: the generated set"
+description = "Extends entry 2's builder to produce CB7, 7Z, a solid 7Z and an encrypted 7Z, generated in-repo like the JPEG fixtures and byte-stable on a second run. Owns the builder the RAR entry extends and the fixtures the solid, corrupt and encrypted entries consume."
+verify = "Every fixture is produced by the builder and is byte-stable on a second run, and no test in the suite is skipped for want of a fixture."
+covers = ["R4"]
+after = [2]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 5
+type = "story"
+title = "RAR: the committed fixture and its conversion"
+description = "RAR is the one container 7z cannot create and no rar binary exists here, so a person commits a small RAR fixture and this entry registers it with the builder entry 4 owns. The reader converts it like any other, proving the by-content path. hitl: a person produces and commits the fixture."
+verify = "cbx-jackal book.rar writes book.jxl.cbz with entry order, entry count and entry bytes preserved."
+covers = ["R4"]
+after = [4]
+hitl = true
+risk = "medium"
+unknown = "Where the RAR fixture comes from: 7z cannot create RAR and no rar binary exists in this environment, so the bytes must be produced elsewhere and committed. Settle the source before this entry starts."
+
+[[entry]]
+id = 6
+type = "story"
+title = "Solid archives: entries byte-exact, and the cost"
+description = "A solid fixture converts with every entry byte-exact and the entry order and count preserved. Establishes as behaviour the cost a solid source carries -- re-inserting a member re-deflates the whole block, so the source's internal container layout is not preserved -- which entry 9 then documents for the owner."
+verify = "A solid 7Z's entries convert byte-exact, with the source's entry order and count, and the untouched entries' bytes match the source's."
+covers = ["R4"]
+after = [4]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 7
+type = "story"
+title = "A corrupt or truncated source leaves no output"
+description = "A truncated CB7 or 7Z makes 7z exit non-zero, which the reader turns into an ArchiveError: no output, exit 1, and the rest of the list carried on -- the answer the ZIP path already gives. Truncates entry 4's fixture in the test rather than extending the builder."
+verify = "A truncated CB7 leaves no book.jxl.cbz, exits 1, and a healthy input beside it still converts."
+covers = ["R4"]
+after = [4]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 8
+type = "story"
+title = "An encrypted archive is refused by name, and the run carries on"
+description = "The reader forces a non-interactive failure so 7z never blocks on a password prompt, and an encrypted input is refused with a line naming it as encrypted, exit 1, every other input still converting. Shares the reader's failure handling with entry 7, which is why it follows it."
+verify = "An encrypted 7Z produces no output and one line naming it as encrypted; a plain input beside it still converts; and the run never waits for input, checked by running it with stdin closed."
+covers = ["R4"]
+after = [7]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 9
+type = "story"
+title = "README: 7z for linux, mac and windows"
+description = "Install instructions for 7z on all three platforms, that the tool checks for 7z by that name and what a system carrying only 7zz or 7za needs, and what a solid or encrypted input does -- the cost entry 6 established and the refusal entry 8 established. Owns README.md's container content alone; entries 6 and 8 establish behaviour and leave the wording here."
+verify = "A reader on each platform installs 7z from the README alone and knows what a solid or an encrypted archive does."
+covers = ["R4"]
+after = [3, 6, 8]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 10
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup only, scoped when it starts from the plans and the review findings deferred during this epic. Scope pushed out of another entry is a new entry, not this one's."
+verify = "The suite and pyright are still green at the 3.9 floor, and each cleanup is traceable to a finding recorded during this epic."
+covers = ["R4"]
+after = [2, 3, 4, 5, 6, 7, 8, 9]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 11
+type = "story"
+title = "Closing end-to-end suite over the epic"
+description = "One suite proving this epic's Done when end to end, including that a ZIP input's behaviour is unchanged byte for byte and that the package installs into a clean virtual environment and runs."
+verify = "Every Done-when item in the epic passes, pyright is clean at the 3.9 floor, and no existing test was edited to accommodate this epic."
+covers = ["R4"]
+after = [10]
+hitl = false
+risk = "medium"
