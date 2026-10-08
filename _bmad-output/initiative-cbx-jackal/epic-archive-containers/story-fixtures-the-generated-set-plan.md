@@ -3,7 +3,7 @@ title: 'Fixtures: the generated set'
 type: 'feature'
 ticket: '4'
 created: '2026-10-08'
-status: 'built'
+status: done
 baseline_revision: '4bc0655'
 route: 'oneshot'
 route_source: 'auto'
