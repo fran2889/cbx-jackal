@@ -32,8 +32,9 @@ count and entry bytes are preserved exactly as the ZIP path preserves them.
    source, and every non-converted entry byte-identical.
 2. A corrupt or unreadable source archive leaves no output at all and exits non-zero, exactly as the ZIP
    path behaves today.
-3. `7z` absent, with an input that needs it, exits non-zero before any archive opens, naming `7z` in the
-   same message as any other missing tool rather than one message per tool.
+3. `7z` absent, with an input that needs it, names `7z` in the same message as any other missing tool
+   rather than one message per tool, and refuses only the inputs that need it. Every other path in the run
+   still converts and the run exits non-zero. A missing `7z` never stops a ZIP in the same run.
 4. A solid archive's entries convert correctly, measured against a solid fixture — a member extracted from a
    single-block archive is byte-exact, but re-inserting one member re-deflates the whole stream, so this is
    stated as a known cost rather than left for a reader to discover.
@@ -59,9 +60,16 @@ The input container and the external reader for it. Output stays CBZ and the ato
   hardcoded twice at `archive.py:161` and `archive.py:325` and the two sites must agree
 - touch point — `discover.py`, via `ARCHIVE_SUFFIXES` at `discover.py:49` and `is_archive` at
   `discover.py:73-82`, without which `book.rar` is never fed to the converter
+- contract — _bmad-output/initiative-cbx-jackal/epic-bounded-downscaling/epic-bounded-downscaling.md,
+  section Notes, the preflight ruling of 2026-10-08 that Done-when 3 now matches: `7z` is input-driven,
+  decided by the recognised input suffix rather than by sniffing, and refuses only the inputs that need it
 
 ## Notes
 
+- Decision: Done-when 3 was amended on 2026-10-08 to stop promising an abort. It read "exits non-zero
+  before any archive opens", which would have meant one missing `7z` refusing a whole library of CBZs.
+  The preflight contract now carries two severities: `cjxl` and any box tool abort, because every run
+  needs them; an input-driven tool refuses only the inputs that need it and the rest of the run converts.
 - Measured: `7z` reads rar, cb7 and 7z by content rather than extension; extraction is byte-exact; `7z l`
   on a broken archive returns rc 2, so the failure oracle keeps the shape `cjxl` already has.
 - Known cost: re-inserting one member into a solid block re-deflates the whole stream, so pages that were

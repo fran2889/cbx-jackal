@@ -150,6 +150,48 @@ that the other three epics wait on. Not the output format (epic-webp-target), no
   entry 11 adds only the two box flags. The flag needs a home before entry 6 starts, and the honest one is
   entry 11 or a new entry alongside it: `--format` accepted, `jxl` the only legal value, `webp` arriving
   with epic-webp-target. Left unowned it would be settled twice, once by the rule and once by the CLI.
+- **Contract `1.5`, the preflight shape for N external tools (2026-10-08).** Settled by the maintainer and
+  recorded here rather than in the spec, as that entry directs.
+
+  **Tools carry one of two severities, and the difference is what the run would lose without them.**
+  `cjxl` is unconditional — every book needs it. `magick` is flag-driven: required only when a box is
+  requested, and known before any file is touched. `7z` is input-driven: required only when an expanded
+  input is a recognised non-ZIP container, and known only after expansion.
+
+  | severity | tool | when it is needed | when it is checked | missing means |
+  |---|---|---|---|---|
+  | unconditional | `cjxl` | always | before path expansion | exit 2, nothing runs |
+  | flag-driven | `magick` | only when `--max-width` or `--max-height` is given | before path expansion | exit 2, nothing runs |
+  | input-driven | `7z` | only when an expanded input is a recognised non-ZIP container | after path expansion | exit 2 overall, only the inputs needing it are refused |
+
+  **The input-driven case carries on rather than aborting.** A missing `7z` must not stop the ZIPs in the
+  same run: every other path is still work the owner asked for, and the tool already refuses one path and
+  continues rather than abandoning the list. CAP-5's "before any archive opens" is a real protection for
+  the two severities that abort — a tool every run needs, discovered partway through a 200-page run — and
+  a much weaker one for a tool only some inputs need, because a RAR is not more of the same work, it is
+  different work. This amends `epic-archive-containers`' Done-when 3, which had promised an abort.
+
+  **One message, whatever the count, and severity stated per tool.** The header names every missing tool;
+  each block then carries its own install guidance and says whether it stops the run or only skips the
+  inputs that need it. Blocks run in severity order — unconditional, then flag-driven, then input-driven —
+  so the tool that cannot be worked around is named first. A run missing both `magick` and `7z` therefore
+  names both in one message, before the owner fixes either and re-runs to learn of the other.
+
+  **An input-driven tool is decided by the recognised input suffix, never by sniffing.** By-content
+  detection stays `7z`'s own job at open time, which is where the measurement put it. Sniffing in the
+  preflight would mean reading the file before knowing the tools are present, which is the situation CAP-5
+  exists to prevent. A file whose suffix says ZIP and whose bytes are not is an unreadable archive, exit
+  1 — the same answer it gives today.
+
+  **A dry run needs exactly the tools the real run would.** It encodes every page so the report can state
+  real size figures rather than estimates, so it is a real run that discards its output; `magick` is
+  required with a box and `7z` with a RAR under `--dry-run` exactly as without it.
+
+  **Exit 2 for any missing tool**, whether the run then aborts or carries on, alongside a refused path for
+  the same reason.
+
+  **The preflight covers the tools the converter runs, not the tools the suite runs.** `djxl` and
+  `jxlinfo` verify output; the converter never shells out to them, so neither is ever preflighted.
 - **Shared setup:** the EXIF injector is on entry 1, the first entry that needs it, and entry 2 extends it.
 - **Open decision, deferred to entry 9: the intermediate's format and quality.** Measured 2026-10-06 on a
   1700x2400 synthetic comic page — hard line art, flat colour, text — decoding the source with one decoder
