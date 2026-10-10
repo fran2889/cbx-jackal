@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """Extended reporting for downscaled and spread-exempt pages.
 
 This module extends the base reporting with downscaling and spread information

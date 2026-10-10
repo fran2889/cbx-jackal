@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """The cjxl invocation matrix, and lossless round-tripping.
 
 These tests exist because of one measured trap: libjxl defaults to

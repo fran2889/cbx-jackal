@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """Extended reporting for downscaled and spread-exempt pages.
 
 Tests the per-page reporting that Contract 1.4 specifies:

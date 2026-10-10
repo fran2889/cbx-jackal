@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """Resize functionality with ImageMagick.
 
 Tests the downscaling invocation: target dimension calculation, magick

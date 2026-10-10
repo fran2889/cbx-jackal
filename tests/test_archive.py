@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """Every row of the I/O and edge-case matrix, as executable assertions.
 
 One test class or method per row, so a failure names the row that broke.

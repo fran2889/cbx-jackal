@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """Command line interface.
 
 Exit code is non-zero if and only if a JPEG entry failed to convert, plus the

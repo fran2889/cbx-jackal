@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """Per-entry outcome classification and reporting.
 
 Three classes, not two. Conflating the second and third would make a healthy

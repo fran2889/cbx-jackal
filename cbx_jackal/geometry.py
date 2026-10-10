@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """Display geometry and EXIF orientation handling for comic page analysis.
 
 This module provides the geometric reasoning that underpins bounded downscaling:

@@ -446,4 +446,4 @@ commit.
 
 ## License
 
-MIT
+GPL-3.0-only — see `LICENSE`. Each Python file carries `SPDX-License-Identifier: GPL-3.0-only`.

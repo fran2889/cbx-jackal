@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """Invoke `cjxl` for a single page.
 
 The invocation matrix below is the whole reason this module exists. libjxl

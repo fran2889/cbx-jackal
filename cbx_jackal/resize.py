@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """Resize a JPEG page to fit the display bounds using ImageMagick.
 
 This module handles the downscaling invocation: the page is resized to the

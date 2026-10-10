@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """CAP-5: verify the external toolchain before any archive is opened."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """Turn a command-line path into the list of archives to convert.
 
 An argument is one of three things, and `expand` decides which in that order: a

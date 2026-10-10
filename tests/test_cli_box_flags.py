@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """CLI box flags: --max-width and --max-height.
 
 Tests the user-facing surface for bounded downscaling:

@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """Geometry, EXIF orientation, spread detection, and downscaling decisions.
 
 Tests the display orientation logic that underpins bounded downscaling:

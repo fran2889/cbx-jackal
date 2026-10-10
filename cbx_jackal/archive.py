@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """Read a CBZ in stored order, transcode its JPEG pages, write a new CBZ.
 
 Ordering is a correctness property, not cosmetics. Entries are iterated in the

@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Fran
+# SPDX-License-Identifier: GPL-3.0-only
 """The commit-message hook is enforced, not merely documented.
 
 `.githooks/commit-msg` rejects any subject that is not Conventional Commits. It
