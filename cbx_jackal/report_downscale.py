@@ -11,7 +11,8 @@ Entry 10 carries the per-page reporting implementation per the clause map:
 Recoverability vocabulary from Contract 1.4:
 - `source`: djxl reproduces the source JPEG byte-for-byte
 - `pixels`: exact pixels survive, the source JPEG file does not
-- `intermediate`: recoverable as the intermediate only (unreachable with PNG intermediate)
+- `intermediate`: recoverable as the intermediate only (unreachable: djxl
+  reproduces the intermediate exactly, which is the `pixels` wording above)
 - `none`: lossy; nothing recovers the page
 """
 
@@ -23,7 +24,7 @@ from typing import Literal
 # Recoverability values per Contract 1.4
 SOURCE = "source"  # djxl reproduces the source JPEG byte-for-byte
 PIXELS = "pixels"  # exact pixels survive, the source JPEG file does not
-INTERMEDIATE = "intermediate"  # recoverable as the intermediate only (unreachable with PNG)
+INTERMEDIATE = "intermediate"  # recoverable as the intermediate only (unreachable)
 NONE = "none"  # lossy; nothing recovers the page
 
 # Valid recoverability values
@@ -145,8 +146,10 @@ class DownscaleReport:
         if not self.has_downscaled:
             return None
         
-        # With PNG intermediate, all downscaled pages are "pixels" recoverability
-        # "intermediate" is unreachable per the 2026-10-08 decision
+        # A downscaled page always reports "pixels": djxl reproduces the
+        # intermediate exactly, but the source JPEG is not what it hands back.
+        # "intermediate" is unreachable for the same reason as with any
+        # intermediate that decodes losslessly.
         if self.pixels_count > 0:
             return f", {self.downscaled_count} of {self.downscaled_count + self.spread_count} pages downscaled (pixels recoverable, source JPEG not)"
         elif self.intermediate_count > 0:

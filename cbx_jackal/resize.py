@@ -1,15 +1,19 @@
 """Resize a JPEG page to fit the display bounds using ImageMagick.
 
-This module handles the downscaling invocation: the page is resized to the maximum
-box dimensions while preserving aspect ratio, EXIF orientation is honoured via
-`-auto-orient`, and the result is a lossless PNG intermediate that is later passed
-to `cjxl --quality=100`.
+This module handles the downscaling invocation: the page is resized to the
+maximum box dimensions while preserving aspect ratio, EXIF orientation is
+honoured via `-auto-orient`, and the result is written as a JPEG intermediate
+that `cjxl` then transcodes losslessly. `djxl` on the finished `.jxl` therefore
+reproduces this module's own JPEG, not the source page -- the page is reduced,
+so the source JPEG was never recoverable anyway.
 
-The trailing `>` in the magick invocation is an explicit downsize guard, ensuring
-ImageMagick never enlarges the image even when only one dimension is constrained.
+The trailing `>` in the magick invocation is an explicit downsize guard,
+ensuring ImageMagick never enlarges the image even when only one dimension is
+constrained.
 
-Magick's own `-quality` flag is fidelity-neutral at every value measured and is
-confirmed as 100, so it costs nothing and removes any room for doubt.
+Magick's `-quality` here is a *visual* quality: it decides what the stored page
+looks like, because libjxl transcodes the bytes unchanged. See
+`MAGICK_QUALITY` for why 90 rather than anything higher or lower.
 
 Temp file discipline matches encode.run: every temp file is cleaned up on every
 exit path, including when magick fails or is interrupted.
@@ -29,14 +33,34 @@ from . import geometry
 #: The external tool. Never bundled; see `preflight`.
 TOOL = "magick"
 
-#: Output intermediate format: PNG for lossless fidelity.
-#: libjxl 0.11.1 measured: `cjxl` with no flags on a PNG intermediate lost
-#: 195,790 pixels (19.2%) on saturated content. `--quality=100` lost zero.
-INTERMEDIATE_FORMAT = ".png"
+#: Output intermediate format. JPEG, because `cjxl` then transcodes it
+#: losslessly and the size goal survives.
+#:
+#: A PNG intermediate cannot serve this purpose: photographic content does not
+#: compress losslessly. Measured on a 2480x3508 page (2,283,999 B) downscaled to
+#: 1131x1600 -- PNG + `--quality=100` encoded to 2,885,700 B, 26% *larger* than
+#: the source, which defeats the point of shrinking the page. Raising cjxl's
+#: effort does not rescue it: `-e 9` is still 2,851,980 B. The same page through
+#: a JPEG intermediate is 287,708 B (-87%), with no measurable fidelity penalty
+#: against the PNG route, and `djxl` recovers the intermediate byte-for-byte.
+INTERMEDIATE_FORMAT = ".jpg"
 
-#: magick quality flag value. Confirmed fidelity-neutral at every value measured,
-#: but 100 is the least room for doubt and costs nothing.
-MAGICK_QUALITY = "100"
+#: magick quality for the JPEG intermediate. A visual quality, not the zlib
+#: effort the same flag controls when writing PNG.
+#:
+#: Measured against the ideal resize, RMSE on a 0-65535 scale, with the output
+#: size for the 2480x3508 -> 1131x1600 case above:
+#:
+#:     70 -> 1193 /   60,371 B     85 -> 1126 /  180,745 B
+#:     75 -> 1177 /   83,831 B     90 -> 1083 /  287,708 B
+#:     80 -> 1155 /  122,886 B     95 ->  883 /  681,575 B
+#:
+#: The curve is almost flat from 70 to 90 -- 9% of fidelity for 4.8x the bytes --
+#: and only jumps at 95, where size triples. 90 is the last value before that
+#: cliff. Comic pages are line art and halftone, where JPEG ringing shows worst
+#: on hard edges and RMSE under-reports it, so erring high is worth the extra
+#: 107 KB; libjxl preserves the bytes exactly, so this choice is permanent.
+MAGICK_QUALITY = "90"
 
 
 class ResizeError(Exception):
@@ -87,10 +111,11 @@ def _build_command(
     
     `-auto-orient` handles EXIF orientation automatically, so the geometry
     module's display dimensions are what magick sees and what ends up in the
-    output PNG.
+    output JPEG.
     
-    `-quality 100` is confirmed fidelity-neutral across all tested values and
-    is the least room for doubt.
+    `-quality` is a visual quality on this path and decides what the stored
+    page looks like, because libjxl transcodes the bytes unchanged. Its value
+    is measured, not chosen for comfort; see `MAGICK_QUALITY`.
     """
     return [
         magick,
@@ -183,11 +208,11 @@ def resize_page(
     
     The page is resized to the maximum box dimensions while preserving aspect
     ratio, EXIF orientation is honoured via `-auto-orient`, and the result is a
-    PNG intermediate.
+    JPEG intermediate.
     
     Uses temp files with the same discipline as encode.run: both input and
-    output are staged on disk, cleaned up on every exit path, and the PNG result
-    is read back into memory for the caller to use with cjxl.
+    output are staged on disk, cleaned up on every exit path, and the JPEG
+    result is read back into memory for the caller to use with cjxl.
     
     Args:
         magick: Path to the magick executable.
@@ -240,7 +265,9 @@ def resize_page(
     # Create temp directory and files
     workdir = tempfile.mkdtemp(prefix="cbx-jackal-resize-")
     stem = os.path.join(workdir, "page")
-    input_path = stem + ".jpg"
+    # Staged under distinct names: with the intermediate also being a `.jpg`,
+    # reusing the stem for both would have the input overwrite the output.
+    input_path = stem + ".in.jpg"
     output_path = stem + INTERMEDIATE_FORMAT
     
     try:

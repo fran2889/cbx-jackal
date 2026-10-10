@@ -137,8 +137,8 @@ magick --version   # ImageMagick 7.x.x
 - Pages that already fit the box are left **untouched** — still losslessly
   transcoded, still byte-for-byte recoverable from the output.
 - Oversized pages are shrunk to fit using `magick -auto-orient -resize '<W>x<H>>'`
-  with a **PNG intermediate**, then `cjxl --quality=100`. PNG keeps every pixel, so
-  the downscaled page is **pixels-recoverable, but the source JPEG is not** — the
+  into a **JPEG intermediate**, then transcoded losslessly with `cjxl`. So the
+  downscaled page is **pixels-recoverable, but the source JPEG is not** — the
   report states this per page.
 - EXIF orientation is **honoured**: a page's display width is measured after
   rotating it upright, so `--max-width` never constrains a page's height.

@@ -7,6 +7,7 @@ command construction, and temp file discipline.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -114,26 +115,26 @@ class CommandBuilding(unittest.TestCase):
 
     def test_command_structure(self):
         """magick command includes all required flags."""
-        command = resize._build_command("magick", "input.jpg", "output.png", 1600, 2000)
+        command = resize._build_command("magick", "input.jpg", "output.jpg", 1600, 2000)
         self.assertEqual("magick", command[0])
         self.assertEqual("input.jpg", command[1])
         self.assertIn("-auto-orient", command)
         self.assertIn("-quality", command)
-        self.assertIn("100", command)
+        self.assertIn(resize.MAGICK_QUALITY, command)
         self.assertIn("1600x2000>", command)
-        self.assertIn("png:output.png", command)
+        self.assertIn("jpg:output.jpg", command)
 
     def test_downsize_guard(self):
         """Trailing > prevents enlargement."""
-        command = resize._build_command("magick", "input.jpg", "output.png", 1600, 2000)
+        command = resize._build_command("magick", "input.jpg", "output.jpg", 1600, 2000)
         # Should contain the downsize guard
         self.assertTrue(any("1600x2000>" in arg for arg in command))
         self.assertFalse(any("1600x2000" == arg and ">" not in arg for arg in command))
 
-    def test_png_format(self):
-        """Output format is PNG."""
-        command = resize._build_command("magick", "input.jpg", "output.png", 1600, 2000)
-        self.assertTrue(any("png:" in arg for arg in command))
+    def test_jpeg_format(self):
+        """Output format is JPEG."""
+        command = resize._build_command("magick", "input.jpg", "output.jpg", 1600, 2000)
+        self.assertTrue(any("jpg:" in arg for arg in command))
 
 
 class ResizeResultStructures(unittest.TestCase):
@@ -236,12 +237,38 @@ class Constants(unittest.TestCase):
         self.assertEqual("magick", resize.TOOL)
 
     def test_intermediate_format(self):
-        """Intermediate format is PNG."""
-        self.assertEqual(".png", resize.INTERMEDIATE_FORMAT)
+        """Intermediate format is JPEG, so cjxl can transcode it losslessly."""
+        self.assertEqual(".jpg", resize.INTERMEDIATE_FORMAT)
 
     def test_magick_quality(self):
-        """magick quality is 100."""
-        self.assertEqual("100", resize.MAGICK_QUALITY)
+        """magick quality is 90, the last value before the size cliff."""
+        self.assertEqual("90", resize.MAGICK_QUALITY)
+
+    def test_real_invocation_produces_a_jpeg(self):
+        """magick runs and writes a real JPEG, under its own steam.
+
+        This is the regression that a JPEG intermediate invites: the staged
+        source and the intermediate would share `.jpg`, so reusing the same
+        stem makes magick read and write the same path.
+        """
+        magick = shutil.which("magick")
+        if magick is None:
+            self.skipTest("magick is not on PATH")
+        result = resize.resize_page(
+            magick,
+            read_bytes(PAGE001_JPEG),
+            600,
+            900,
+            max_width=300,
+            max_height=300,
+        )
+        self.assertTrue(result.ok, result.error)
+        data = result.data
+        self.assertIsNotNone(data)
+        assert data is not None
+        self.assertTrue(data.startswith(b"\xff\xd8\xff"))
+        self.assertEqual(200, result.target_width)
+        self.assertEqual(300, result.target_height)
 
 
 if __name__ == '__main__':

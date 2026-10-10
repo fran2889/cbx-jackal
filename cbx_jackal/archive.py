@@ -1171,7 +1171,7 @@ class Converter:
                                 target_width=resize_result.target_width,
                                 target_height=resize_result.target_height
                             )
-                            # PNG intermediate means pixels are recoverable but source JPEG is not
+                            # JPEG intermediate means pixels are recoverable but source JPEG is not
                             recoverability = PIXELS
                         # If resize failed, continue with original data and it will fail in cjxl
 
@@ -1328,7 +1328,7 @@ class Converter:
                                 target_width=resize_result.target_width,
                                 target_height=resize_result.target_height
                             )
-                            # PNG intermediate means pixels are recoverable but source JPEG is not
+                            # JPEG intermediate means pixels are recoverable but source JPEG is not
                             recoverability = PIXELS
                         # If resize failed, continue with original data and it will fail in cjxl
 

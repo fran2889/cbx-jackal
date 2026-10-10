@@ -343,7 +343,7 @@ class ModeLineFormatting(unittest.TestCase):
         mode line already says it. A downscaling suffix would be redundant.
         """
         report = report_downscale.DownscaleReport()
-        report.add_downscaled(report_downscale.NONE)  # This shouldn't happen with PNG intermediate
+        report.add_downscaled(report_downscale.NONE)  # shouldn't happen for a downscaled page
         
         mode_line = report_downscale.format_run_level_mode(quality=90, downscale_report=report)
         # With lossy mode and NONE recoverability, suffix should still appear as specified
