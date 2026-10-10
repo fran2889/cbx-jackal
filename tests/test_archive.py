@@ -1594,9 +1594,14 @@ class CliSurface(ArchiveTestCase):
 
 
 class MisnamedEntry(ArchiveTestCase):
-    """A .jpg holding PNG bytes still converts -- cjxl sniffs content."""
+    """A `.jpg` holding non-JPEG bytes is refused rather than transcoded.
 
-    def test_mislabelled_entry_converts(self):
+    `cjxl` sniffs content and would encode a PNG under a `.jxl` name without
+    complaint, so the check is ours. Absence of the JPEG SOI marker proves only
+    that the entry is not a JPEG; the report says that and nothing more.
+    """
+
+    def test_mislabelled_entry_is_not_converted(self):
         source = build_zip(
             self.path("mis.cbz"),
             [
@@ -1605,8 +1610,36 @@ class MisnamedEntry(ArchiveTestCase):
             ],
         )
         report = Converter(self.cjxl).convert(source)
-        self.assertTrue(report.ok, report.failure_lines())
-        self.assertIn("page.jxl", names_in_order(destination_for(source)))
+        self.assertFalse(report.ok)
+        self.assertEqual(["page.jpg: not a JPEG"], report.failure_lines())
+        out = contents(destination_for(source))
+        self.assertNotIn("page.jxl", out)
+        self.assertEqual(read_bytes(MISNAMED_PNG), out["page.jpg"])
+        self.assertIn("real.jxl", out)
+
+    def test_the_real_page_still_converts_alongside_it(self):
+        source = build_zip(
+            self.path("mix.cbz"),
+            [
+                ("page.jpg", read_bytes(MISNAMED_PNG)),
+                ("real.jpg", read_bytes(REAL_JPEG)),
+            ],
+        )
+        Converter(self.cjxl).convert(source)
+        out = contents(destination_for(source))
+        self.assertReconstructsTo(out["real.jxl"], read_bytes(REAL_JPEG))
+
+    def test_a_dry_run_predicts_the_same_failure(self):
+        source = build_zip(
+            self.path("dry.cbz"),
+            [
+                ("page.jpg", read_bytes(MISNAMED_PNG)),
+                ("real.jpg", read_bytes(REAL_JPEG)),
+            ],
+        )
+        report = Converter(self.cjxl).convert(source, dry_run=True)
+        self.assertFalse(report.ok)
+        self.assertEqual(["page.jpg: not a JPEG"], report.failure_lines())
 
 class ShippedFixture(ArchiveTestCase):
     """End-to-end over the committed tests/fixtures/sample.cbz."""

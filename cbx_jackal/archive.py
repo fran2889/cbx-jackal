@@ -37,6 +37,11 @@ from .report_downscale import (
 #: archives are full of `.JPG` and `.JPEG`.
 JPEG_SUFFIXES = (".jpg", ".jpeg")
 
+#: The JPEG SOI (Start Of Image) marker every JPEG file begins with. Used as a
+#: presence check, not a parser: absence proves the entry is not a JPEG at all,
+#: and it cannot reject a real one, however unusual its structure.
+JPEG_MAGIC = b"\xff\xd8\xff"
+
 #: Never handed to `cjxl`. Re-encoding an existing `.jxl` strips the JPEG
 #: bitstream reconstruction data, which is the one way to silently destroy
 #: reversibility.
@@ -1103,6 +1108,25 @@ class Converter:
             )
             return
 
+        if not data.startswith(JPEG_MAGIC):
+            # The name says JPEG, the bytes do not. `cjxl` sniffs content and
+            # would happily encode a PNG or an XML file under a `.jxl` name, so
+            # the check has to happen here rather than be left to it. Absence of
+            # the SOI marker proves only that this is not a JPEG; it says
+            # nothing about what it is, so the reason does not guess.
+            passthrough_plan = OutputPlan(plan.name, plan.name, transcode=False)
+            target.writestr(_stored_info(passthrough_plan, template), data)
+            report.add(
+                EntryOutcome(
+                    name=plan.name,
+                    classification=NOT_CONVERTED,
+                    reason="not a JPEG",
+                    source_size=size,
+                    output_size=size,
+                )
+            )
+            return
+
         # Check if downscaling is needed for this JPEG page
         processed_data = data
         downscaled_info = None
@@ -1240,6 +1264,20 @@ class Converter:
                 EntryOutcome(
                     name=plan.name,
                     classification=PASSED_THROUGH,
+                    source_size=size,
+                    output_size=size,
+                )
+            )
+            return
+
+        if not data.startswith(JPEG_MAGIC):
+            # Same check as the writing path, reported the same way so a dry
+            # run predicts the exit code a real run would produce.
+            report.add(
+                EntryOutcome(
+                    name=plan.name,
+                    classification=NOT_CONVERTED,
+                    reason="not a JPEG",
                     source_size=size,
                     output_size=size,
                 )
