@@ -201,21 +201,31 @@ def create_extended_outcome(
 
 def format_run_level_mode(
     quality: int | None,
-    downscale_report: DownscaleReport | None = None
+    downscale_report: DownscaleReport | None = None,
+    downscaled: bool = False,
 ) -> str:
     """Format the run-level mode line with optional downscaling information.
+    
+    A downscaled page is lossy whatever `quality` says. The resample discards
+    pixels and the intermediate is itself a re-encode, so the source JPEG is
+    already gone before `cjxl` is called; `cjxl` preserving the intermediate
+    losslessly does not undo that. Claiming losslessness here would promise
+    recovery of a JPEG that no longer exists.
     
     Args:
         quality: The quality value from CLI (None for lossless)
         downscale_report: Optional downscaling statistics
+        downscaled: True when any page in this run was downscaled
     
     Returns:
         The formatted mode line.
     """
-    if quality is None or quality >= 100:
-        mode = "lossless (JPEG bytes recoverable with djxl)"
-    else:
+    if quality is not None and quality < 100:
         mode = f"lossy, quality {quality} (JPEG bytes NOT recoverable)"
+    elif downscaled or (downscale_report is not None and downscale_report.has_downscaled):
+        mode = "lossy (downscaled; JPEG bytes NOT recoverable)"
+    else:
+        mode = "lossless (JPEG bytes recoverable with djxl)"
     
     # Add downscaling suffix if present
     suffix = downscale_report.format_mode_suffix() if downscale_report else None

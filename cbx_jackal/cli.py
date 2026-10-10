@@ -79,7 +79,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "encode lossy at quality N (1-100) instead of losslessly. "
-            "Surrenders byte-for-byte JPEG recovery. 100 and above is lossless."
+            "Surrenders byte-for-byte JPEG recovery. 100 and above is lossless. "
+            "With --max-width/--max-height the quality is applied to the "
+            "downscaled page's intermediate instead, and cjxl then preserves "
+            "that intermediate losslessly."
         ),
     )
     parser.add_argument(

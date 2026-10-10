@@ -1129,6 +1129,11 @@ class Converter:
 
         # Check if downscaling is needed for this JPEG page
         processed_data = data
+        # A downscaled page spends its quality at the intermediate and is then
+        # preserved losslessly. Encoding it again at `self.quality` would be a
+        # second lossy pass over damage the resample has already done, and it
+        # measures worse and larger than encoding nothing at all.
+        encode_quality = self.quality
         downscaled_info = None
         spread_info = None
         recoverability = None
@@ -1160,7 +1165,8 @@ class Converter:
                             jpeg_width,
                             jpeg_height,
                             self.max_width,
-                            self.max_height
+                            self.max_height,
+                            quality=self.quality
                         )
                         
                         if resize_result.ok and resize_result.data is not None:
@@ -1173,13 +1179,16 @@ class Converter:
                             )
                             # JPEG intermediate means pixels are recoverable but source JPEG is not
                             recoverability = PIXELS
+                            # The quality was spent at the intermediate above;
+                            # what is left is to preserve it, not re-encode it.
+                            encode_quality = None
                         # If resize failed, continue with original data and it will fail in cjxl
 
         result = encode.run(
             self.cjxl,
             processed_data,
             suffix=os.path.splitext(plan.name)[1],
-            quality=self.quality,
+            quality=encode_quality,
         )
         # `encode.run` only sets ok=True alongside data, so the second half of
         # this guard is unreachable. It is spelled out because a page that
@@ -1286,6 +1295,11 @@ class Converter:
 
         # Check if downscaling is needed for this JPEG page
         processed_data = data
+        # A downscaled page spends its quality at the intermediate and is then
+        # preserved losslessly. Encoding it again at `self.quality` would be a
+        # second lossy pass over damage the resample has already done, and it
+        # measures worse and larger than encoding nothing at all.
+        encode_quality = self.quality
         downscaled_info = None
         spread_info = None
         recoverability = None
@@ -1317,7 +1331,8 @@ class Converter:
                             jpeg_width,
                             jpeg_height,
                             self.max_width,
-                            self.max_height
+                            self.max_height,
+                            quality=self.quality
                         )
                         
                         if resize_result.ok and resize_result.data is not None:
@@ -1330,13 +1345,16 @@ class Converter:
                             )
                             # JPEG intermediate means pixels are recoverable but source JPEG is not
                             recoverability = PIXELS
+                            # The quality was spent at the intermediate above;
+                            # what is left is to preserve it, not re-encode it.
+                            encode_quality = None
                         # If resize failed, continue with original data and it will fail in cjxl
 
         result = encode.run(
             self.cjxl,
             processed_data,
             suffix=os.path.splitext(plan.name)[1],
-            quality=self.quality,
+            quality=encode_quality,
         )
         
         if result.ok:

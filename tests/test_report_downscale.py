@@ -316,15 +316,53 @@ class ModeLineFormatting(unittest.TestCase):
             mode_line
         )
 
-    def test_lossless_mode_with_downscaling(self):
-        """Lossless mode with downscaling suffix."""
+    def test_downscaling_makes_the_run_lossy(self):
+        """A downscaled run is lossy even when --quality was not given.
+
+        The resample and the intermediate's own re-encode have already
+        discarded the source, so claiming losslessness would promise recovery
+        of a JPEG that no longer exists -- `cjxl` preserving the intermediate
+        does not bring the page back.
+        """
         report = report_downscale.DownscaleReport()
         report.add_downscaled(report_downscale.PIXELS)
         report.add_downscaled(report_downscale.PIXELS)
         
         mode_line = report_downscale.format_run_level_mode(quality=None, downscale_report=report)
         self.assertEqual(
-            "mode: lossless (JPEG bytes recoverable with djxl), 2 of 2 pages downscaled (pixels recoverable, source JPEG not)",
+            "mode: lossy (downscaled; JPEG bytes NOT recoverable), 2 of 2 pages downscaled (pixels recoverable, source JPEG not)",
+            mode_line
+        )
+
+    def test_downscaled_flag_without_a_report(self):
+        """The flag form reports lossy the same way the report form does."""
+        mode_line = report_downscale.format_run_level_mode(quality=None, downscaled=True)
+        self.assertEqual(
+            "mode: lossy (downscaled; JPEG bytes NOT recoverable)",
+            mode_line
+        )
+
+    def test_no_downscaling_stays_lossless(self):
+        """No resize and no --quality is still the reversible case."""
+        mode_line = report_downscale.format_run_level_mode(quality=None)
+        self.assertEqual(
+            "mode: lossless (JPEG bytes recoverable with djxl)",
+            mode_line
+        )
+
+    def test_quality_100_stays_lossless_when_nothing_was_resized(self):
+        """--quality 100 clamps to the lossless invocation."""
+        mode_line = report_downscale.format_run_level_mode(quality=100)
+        self.assertEqual(
+            "mode: lossless (JPEG bytes recoverable with djxl)",
+            mode_line
+        )
+
+    def test_quality_100_with_downscaling_is_still_lossy(self):
+        """--quality 100 does not rescue a page that was resized."""
+        mode_line = report_downscale.format_run_level_mode(quality=100, downscaled=True)
+        self.assertEqual(
+            "mode: lossy (downscaled; JPEG bytes NOT recoverable)",
             mode_line
         )
 

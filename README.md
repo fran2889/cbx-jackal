@@ -134,12 +134,18 @@ magick --version   # ImageMagick 7.x.x
 
 **Note on behaviour.** When `--max-width` or `--max-height` is given:
 
-- Pages that already fit the box are left **untouched** — still losslessly
-  transcoded, still byte-for-byte recoverable from the output.
+- Pages that already fit the box are left **untouched** — encoded at whatever
+  `--quality` says, which means byte-for-byte recoverable unless you asked for
+  lossy.
 - Oversized pages are shrunk to fit using `magick -auto-orient -resize '<W>x<H>>'`
   into a **JPEG intermediate**, then transcoded losslessly with `cjxl`. So the
   downscaled page is **pixels-recoverable, but the source JPEG is not** — the
-  report states this per page.
+  report states this per page, and the run is reported as **lossy**, because a
+  resample discards pixels no matter what `cjxl` then does.
+- A downscaled page's intermediate is written at `--quality N` when given, and
+  at 90 otherwise. The quality is spent *there* rather than on the `cjxl` call:
+  a resampled page is already lossy, so re-encoding it a second time measures
+  both worse and larger than not doing it.
 - EXIF orientation is **honoured**: a page's display width is measured after
   rotating it upright, so `--max-width` never constrains a page's height.
 - A **double-page spread** (display aspect ≥ 1.35:1) keeps its full width —
@@ -229,7 +235,7 @@ cbx-jackal CBZ|DIR|PATTERN [CBZ|DIR|PATTERN ...] [--recursive] [--quality N] [--
 | Flag | Meaning |
 |---|---|
 | `--recursive`, `-r` | Descend into subdirectories when a path is a directory. |
-| `--quality N` | Encode lossy at quality 1–100 instead of losslessly. Surrenders byte-for-byte JPEG recovery. 100 and above is lossless. |
+| `--quality N` | Encode lossy at quality 1–100 instead of losslessly. Surrenders byte-for-byte JPEG recovery. 100 and above is lossless. With `--max-width`/`--max-height` the quality is applied to the downscaled page's intermediate instead, and `cjxl` then preserves that intermediate losslessly. |
 | `--format FMT` | Page format of the output; legal values: `jxl`. The output is named `<input>.<format>.cbz` either way, and the container never varies with the input. Default: `jxl`. |
 | `--strict` | Write nothing at all if any page fails to convert, instead of copying the failed page through and completing the archive. |
 | `--dry-run` | Report the plan and the real size figures without writing anything. |

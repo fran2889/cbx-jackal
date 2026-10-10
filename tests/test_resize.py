@@ -270,6 +270,36 @@ class Constants(unittest.TestCase):
         self.assertEqual(200, result.target_width)
         self.assertEqual(300, result.target_height)
 
+    def test_explicit_quality_reaches_magick(self):
+        """A caller's --quality lands on the intermediate, the only lossy step."""
+        command = resize._build_command(
+            "magick", "in.jpg", "out.jpg", 1600, 2000, quality="99"
+        )
+        self.assertEqual("99", command[command.index("-quality") + 1])
+
+    def test_quality_falls_back_to_the_measured_default(self):
+        """No --quality still uses MAGICK_QUALITY."""
+        command = resize._build_command("magick", "in.jpg", "out.jpg", 1600, 2000)
+        self.assertEqual(
+            resize.MAGICK_QUALITY, command[command.index("-quality") + 1]
+        )
+
+    def test_quality_actually_changes_the_intermediate(self):
+        """The plumb-through is real, not a parameter nobody reads."""
+        magick = shutil.which("magick")
+        if magick is None:
+            self.skipTest("magick is not on PATH")
+        source = read_bytes(PAGE001_JPEG)
+        low = resize.resize_page(magick, source, 600, 900, max_width=200, quality=20)
+        high = resize.resize_page(magick, source, 600, 900, max_width=200, quality=95)
+        self.assertTrue(low.ok, low.error)
+        self.assertTrue(high.ok, high.error)
+        low_data, high_data = low.data, high.data
+        self.assertIsNotNone(low_data)
+        self.assertIsNotNone(high_data)
+        assert low_data is not None and high_data is not None
+        self.assertLess(len(low_data), len(high_data))
+
 
 if __name__ == '__main__':
     unittest.main()

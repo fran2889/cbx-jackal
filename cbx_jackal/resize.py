@@ -101,6 +101,7 @@ def _build_command(
     output_path: str,
     target_width: int,
     target_height: int,
+    quality: str = MAGICK_QUALITY,
 ) -> list[str]:
     """Build the magick command for resizing one page.
     
@@ -114,14 +115,16 @@ def _build_command(
     output JPEG.
     
     `-quality` is a visual quality on this path and decides what the stored
-    page looks like, because libjxl transcodes the bytes unchanged. Its value
-    is measured, not chosen for comfort; see `MAGICK_QUALITY`.
+    page looks like, because libjxl transcodes the bytes unchanged. It is the
+    *only* lossy step in a downscaled page, so a caller's `--quality` belongs
+    here rather than on the `cjxl` call it would otherwise re-encode with.
+    `MAGICK_QUALITY` is the fallback when none was asked for.
     """
     return [
         magick,
         input_path,
         "-auto-orient",
-        "-quality", MAGICK_QUALITY,
+        "-quality", quality,
         "-resize", f"{target_width}x{target_height}>",
         f"{INTERMEDIATE_FORMAT[1:]}:{output_path}",  # Remove leading dot
     ]
@@ -203,12 +206,19 @@ def resize_page(
     original_height: int,
     max_width: int | None = None,
     max_height: int | None = None,
+    quality: int | None = None,
 ) -> ResizeResult:
     """Resize `source` JPEG bytes to fit bounds using magick.
     
     The page is resized to the maximum box dimensions while preserving aspect
     ratio, EXIF orientation is honoured via `-auto-orient`, and the result is a
     JPEG intermediate.
+    
+    A downscaled page is lossy whatever else happens: the resample discards
+    pixels and the intermediate's own re-encode is lossy by construction. So
+    `quality` is spent here, at the one lossy step, and `cjxl` then preserves
+    the intermediate losslessly rather than encoding on top of it. When `quality`
+    is None the measured `MAGICK_QUALITY` stands in.
     
     Uses temp files with the same discipline as encode.run: both input and
     output are staged on disk, cleaned up on every exit path, and the JPEG
@@ -221,10 +231,12 @@ def resize_page(
         original_height: Original pixel height from JPEG header.
         max_width: Maximum allowed width for the result.
         max_height: Maximum allowed height for the result.
+        quality: JPEG quality for the intermediate, 1-100. None for the default.
     
     Returns:
-        ResizeResult with the PNG bytes, dimensions, and success status.
+        ResizeResult with the JPEG bytes, dimensions, and success status.
     """
+    quality_flag = str(quality) if quality is not None else MAGICK_QUALITY
     # Get display dimensions (handles EXIF orientation)
     display_dims = geometry.get_display_dimensions(source, original_width, original_height)
     
@@ -277,7 +289,8 @@ def resize_page(
         
         # Build and run the magick command
         command = _build_command(
-            magick, input_path, output_path, target_width, target_height
+            magick, input_path, output_path, target_width, target_height,
+            quality=quality_flag,
         )
         
         try:

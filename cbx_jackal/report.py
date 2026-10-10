@@ -160,7 +160,9 @@ class Report:
         
         # Use extended mode formatting if we have downscaling/spread info
         if self._extended_outcomes:
-            mode_line = format_run_level_mode(quality)
+            # Lossy if any page was actually resized, whatever --quality said.
+            downscaled = any(o.downscaled is not None for o in self._extended_outcomes)
+            mode_line = format_run_level_mode(quality, downscaled=downscaled)
         else:
             if quality is None or quality >= 100:
                 mode = "lossless (JPEG bytes recoverable with djxl)"
