@@ -3,7 +3,7 @@
 This module handles the downscaling invocation: the page is resized to the maximum
 box dimensions while preserving aspect ratio, EXIF orientation is honoured via
 `-auto-orient`, and the result is a lossless PNG intermediate that is later passed
-to `cjxl -q 100`.
+to `cjxl --quality=100`.
 
 The trailing `>` in the magick invocation is an explicit downsize guard, ensuring
 ImageMagick never enlarges the image even when only one dimension is constrained.
@@ -31,7 +31,7 @@ TOOL = "magick"
 
 #: Output intermediate format: PNG for lossless fidelity.
 #: libjxl 0.11.1 measured: `cjxl` with no flags on a PNG intermediate lost
-#: 195,790 pixels (19.2%) on saturated content. `-q 100` lost zero.
+#: 195,790 pixels (19.2%) on saturated content. `--quality=100` lost zero.
 INTERMEDIATE_FORMAT = ".png"
 
 #: magick quality flag value. Confirmed fidelity-neutral at every value measured,

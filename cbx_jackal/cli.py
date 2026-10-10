@@ -38,7 +38,7 @@ expand it before this tool sees it.
 The output is always a new file named <input>.<format>.cbz beside the input,
 where <format> is what --format names -- .cbz never varies with the input. The
 input is never modified. When --max-width or --max-height is given, oversized pages
-are downscaled via ImageMagick to a PNG intermediate, then encoded with cjxl -q 100;
+are downscaled via ImageMagick to a PNG intermediate, then encoded with cjxl --quality=100;
 pages that already fit the box are left untouched and keep their source JPEG
 byte-recoverable. Requires cjxl from the libjxl tools package; magick when a box
 is requested; 7z when an input is a CB7 or 7Z rather than a CBZ or ZIP; see README.md.

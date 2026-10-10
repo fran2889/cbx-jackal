@@ -606,6 +606,7 @@ class SevenZipSource:
     def __init__(self, path: str) -> None:
         self._workdir = tempfile.mkdtemp(prefix=SEVENZIP_WORKDIR_PREFIX)
         try:
+            # l = list contents, -slt = show technical information for that listing.
             listing = _run_sevenzip(["l", "-slt", path], path)
             if listing.returncode != 0:
                 raise ArchiveError(
@@ -658,6 +659,7 @@ class SevenZipSource:
                 )
 
     def _extract(self, path: str) -> None:
+        # x = eXtract with full paths, -y = assume yes on all queries, -o = output directory.
         extraction = _run_sevenzip(["x", "-y", f"-o{self._workdir}", path], path)
         if extraction.returncode != 0:
             raise ArchiveError(
@@ -730,6 +732,7 @@ class UnrarSource:
     def __init__(self, path: str) -> None:
         self._workdir = tempfile.mkdtemp(prefix=UNRAR_WORKDIR_PREFIX)
         try:
+            # l = list contents, same command letter 7z uses.
             listing = _run_unrar(["l", path], path)
             if listing.returncode != 0:
                 raise ArchiveError(
@@ -769,6 +772,7 @@ class UnrarSource:
                 )
 
     def _extract(self, path: str) -> None:
+        # x = extract with full paths, -y = assume Yes on all queries.
         extraction = _run_unrar(["x", "-y", path, self._workdir], path)
         if extraction.returncode != 0:
             raise ArchiveError(

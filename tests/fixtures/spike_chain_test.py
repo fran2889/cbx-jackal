@@ -266,9 +266,9 @@ def main() -> int:
         jxl_path = jxl_file.name
     
     try:
-        # Encode with cjxl -q 100 (as decided in the epic)
+        # Encode with cjxl --quality=100 (as decided in the epic)
         result = subprocess.run(
-            [cjxl_path, "-q", "100", png_path, jxl_path],
+            [cjxl_path, "--quality=100", png_path, jxl_path],
             capture_output=True,
             timeout=10,
         )

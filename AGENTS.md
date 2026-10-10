@@ -27,7 +27,7 @@ Transcodes a CBZ comic archive's JPEG pages to JPEG XL, losslessly and byte-reve
 
 ## Conventions that differ from defaults
 
-- A lossy cjxl call needs `-q N` *and* `--lossless_jpeg=0`; `-q` alone exits 1 and writes nothing. The lossless path passes no flags at all.
+- A lossy cjxl call needs `--quality=N` *and* `--lossless_jpeg=0`; `--quality=N` alone exits 1 and writes nothing. The lossless path passes only `--lossless_jpeg=1`.
 - `ZIP_STORED` is hardcoded twice and the two sites must agree (`archive.py:153`, `archive.py:317`).
 - Publish as temp file → `fsync` → `os.replace`, with the temp in the destination directory so the rename stays same-filesystem.
 - The collision key is `unicodedata.normalize("NFC", name).casefold()` (`archive.py:120`).

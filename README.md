@@ -137,7 +137,7 @@ magick --version   # ImageMagick 7.x.x
 - Pages that already fit the box are left **untouched** — still losslessly
   transcoded, still byte-for-byte recoverable from the output.
 - Oversized pages are shrunk to fit using `magick -auto-orient -resize '<W>x<H>>'`
-  with a **PNG intermediate**, then `cjxl -q 100`. PNG keeps every pixel, so
+  with a **PNG intermediate**, then `cjxl --quality=100`. PNG keeps every pixel, so
   the downscaled page is **pixels-recoverable, but the source JPEG is not** — the
   report states this per page.
 - EXIF orientation is **honoured**: a page's display width is measured after
@@ -352,9 +352,9 @@ libjxl sets `lossless_jpeg=1` by default for JPEG input, so passing only a
 quality flag fails outright:
 
 ```bash
-cjxl in.jpg out.jxl                          # lossless, reversible
-cjxl -q 90            in.jpg out.jxl         # exit 1, no output
-cjxl -q 90 --lossless_jpeg=0 in.jpg out.jxl  # lossy, irreversible
+cjxl in.jpg out.jxl                                             # lossless, reversible
+cjxl --quality=90 in.jpg out.jxl                                # exit 1, no output
+cjxl --quality=90 --lossless_jpeg=0 in.jpg out.jxl              # lossy, irreversible
 ```
 
 ```

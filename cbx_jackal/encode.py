@@ -1,12 +1,12 @@
 """Invoke `cjxl` for a single page.
 
 The invocation matrix below is the whole reason this module exists. libjxl
-defaults to lossless *transcoding* for JPEG input, so a bare call is already
-lossless and byte-reversible:
+defaults to lossless *transcoding* for JPEG input, so `--lossless_jpeg=1`
+restates that default rather than changing it:
 
-    cjxl in.jpg out.jxl                              # lossless, reversible
-    cjxl -q 90 in.jpg out.jxl                        # exit 1, no output
-    cjxl -q 90 --lossless_jpeg=0 in.jpg out.jxl      # lossy, irreversible
+    cjxl --lossless_jpeg=1 in.jpg out.jxl                     # lossless, reversible
+    cjxl --quality=90 in.jpg out.jxl                          # exit 1, no output
+    cjxl --quality=90 --lossless_jpeg=0 in.jpg out.jxl        # lossy, irreversible
 
 The middle form fails because libjxl sets `lossless_jpeg=1` by default and
 refuses a quality below 100 alongside it:
@@ -63,8 +63,9 @@ def is_lossless(quality: int | None) -> bool:
     """True when the run keeps JPEG bitstream reconstruction data.
 
     `quality` of None means lossless. A quality of 100 or above is clamped to
-    the lossless invocation rather than emitted as `-q 100 --lossless_jpeg=0`,
-    which would silently surrender reversibility for no size benefit.
+    the lossless invocation rather than emitted as
+    `--quality=100 --lossless_jpeg=0`, which would silently surrender
+    reversibility for no size benefit.
     """
     return quality is None or quality >= 100
 
@@ -77,12 +78,14 @@ def build_command(
 ) -> list[str]:
     """The `cjxl` argv for one page.
 
-    Lossless passes no `-q` at all. Lossy passes **both** `-q N` and
-    `--lossless_jpeg=0`; dropping the second flag makes every lossy run fail.
+    Lossless passes only `--lossless_jpeg=1`. Lossy passes **both**
+    `--quality=N` and `--lossless_jpeg=0`; dropping the second flag makes
+    every lossy run fail. Every flag is written in libjxl's long form, which
+    `cjxl` spells as `--name=value`.
     """
     if is_lossless(quality):
-        return [cjxl, input_path, output_path]
-    return [cjxl, "-q", str(quality), "--lossless_jpeg=0", input_path, output_path]
+        return [cjxl, "--lossless_jpeg=1", input_path, output_path]
+    return [cjxl, f"--quality={quality}", "--lossless_jpeg=0", input_path, output_path]
 
 
 def _meaningful_lines(stderr: str) -> list[str]:

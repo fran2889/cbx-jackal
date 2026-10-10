@@ -1,7 +1,7 @@
 """The cjxl invocation matrix, and lossless round-tripping.
 
 These tests exist because of one measured trap: libjxl defaults to
-lossless-transcoding for JPEG input, so `-q N` without `--lossless_jpeg=0` fails
+lossless-transcoding for JPEG input, so `--quality=N` without `--lossless_jpeg=0` fails
 outright and produces no file.
 """
 
@@ -34,31 +34,33 @@ class InvocationMatrix(unittest.TestCase):
 
     def test_lossless_path_passes_no_quality_flag(self):
         command = encode.build_command("cjxl", "in.jpg", "out.jxl", None)
-        self.assertEqual(["cjxl", "in.jpg", "out.jxl"], command)
+        self.assertEqual(["cjxl", "--lossless_jpeg=1", "in.jpg", "out.jxl"], command)
         self.assertNotIn("-q", command)
         self.assertNotIn("--quality", command)
 
     def test_lossless_path_does_not_pass_lossless_jpeg_0(self):
         command = encode.build_command("cjxl", "in.jpg", "out.jxl", None)
         self.assertNotIn("--lossless_jpeg=0", command)
+        self.assertIn("--lossless_jpeg=1", command)
 
     def test_lossy_path_passes_both_quality_and_lossless_jpeg_0(self):
         command = encode.build_command("cjxl", "in.jpg", "out.jxl", 90)
         self.assertEqual(
-            ["cjxl", "-q", "90", "--lossless_jpeg=0", "in.jpg", "out.jxl"], command
+            ["cjxl", "--quality=90", "--lossless_jpeg=0", "in.jpg", "out.jxl"],
+            command,
         )
 
     def test_lossy_quality_appears_before_the_paths(self):
         # cjxl parses flags before positionals; get this wrong and it exits 1.
         command = encode.build_command("cjxl", "in.jpg", "out.jxl", 75)
-        self.assertLess(command.index("-q"), command.index("in.jpg"))
+        self.assertLess(command.index("--quality=75"), command.index("in.jpg"))
         self.assertLess(command.index("--lossless_jpeg=0"), command.index("in.jpg"))
 
     def test_quality_100_is_treated_as_lossless(self):
-        # -q 100 --lossless_jpeg=0 would surrender reversibility for no gain.
+        # --quality=100 --lossless_jpeg=0 would surrender reversibility for no gain.
         self.assertTrue(encode.is_lossless(100))
         self.assertEqual(
-            ["cjxl", "in.jpg", "out.jxl"],
+            ["cjxl", "--lossless_jpeg=1", "in.jpg", "out.jxl"],
             encode.build_command("cjxl", "in.jpg", "out.jxl", 100),
         )
 
@@ -70,8 +72,21 @@ class InvocationMatrix(unittest.TestCase):
         for quality in (1, 30, 50, 90, 99):
             with self.subTest(quality=quality):
                 command = encode.build_command("cjxl", "a", "b", quality)
-                self.assertEqual([str(quality)], [c for c in command if c.isdigit()])
+                self.assertEqual(
+                    [f"--quality={quality}"], [c for c in command if c.startswith("--quality=")]
+                )
                 self.assertIn("--lossless_jpeg=0", command)
+
+    def test_every_flag_is_written_in_long_form(self):
+        """No single-letter option ever reaches cjxl."""
+        for quality in (None, 1, 30, 50, 75, 90, 99, 100):
+            with self.subTest(quality=quality):
+                command = encode.build_command("cjxl", "in.jpg", "out.jxl", quality)
+                for flag in command:
+                    if flag.startswith("-"):
+                        self.assertTrue(
+                            flag.startswith("--"), f"short flag in argv: {flag!r}"
+                        )
 
 
 class LosslessReversibility(ArchiveTestCase):
