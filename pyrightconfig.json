@@ -1,6 +1,6 @@
 {
   "include": ["cbx_jackal", "tests"],
-  "pythonVersion": "3.9",
+  "pythonVersion": "3.14",
   "typeCheckingMode": "basic",
   "reportMissingImports": "error"
 }

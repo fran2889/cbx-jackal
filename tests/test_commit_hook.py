@@ -12,8 +12,6 @@ loud instead of silent.
 None of this needs `cjxl`, so it runs in the stripped environment too.
 """
 
-from __future__ import annotations
-
 import os
 import subprocess
 import tempfile

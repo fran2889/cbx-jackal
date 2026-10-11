@@ -13,8 +13,6 @@ Every entry written out is ZIP_STORED. JXL is already entropy-coded, so deflate
 measured under 1% gain while costing real CPU on every page.
 """
 
-from __future__ import annotations
-
 import os
 import re
 import shutil

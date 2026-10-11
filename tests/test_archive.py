@@ -5,8 +5,6 @@
 One test class or method per row, so a failure names the row that broke.
 """
 
-from __future__ import annotations
-
 import glob
 import io
 import os

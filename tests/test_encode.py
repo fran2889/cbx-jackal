@@ -7,8 +7,6 @@ lossless-transcoding for JPEG input, so `--quality=N` without `--lossless_jpeg=0
 outright and produces no file.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess

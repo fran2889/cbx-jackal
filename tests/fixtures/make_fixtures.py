@@ -22,7 +22,6 @@ import subprocess
 import sys
 import tempfile
 import zipfile
-from typing import Optional
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -170,7 +169,7 @@ def _inject_orientation(jpeg_bytes: bytes, orientation: int) -> bytes:
     return inject_orientation(jpeg_bytes, orientation)
 
 
-def _create_oriented_jpeg(width: int, height: int, orientation: Optional[int], color: str = "white") -> bytes:
+def _create_oriented_jpeg(width: int, height: int, orientation: int | None, color: str = "white") -> bytes:
     """Create a JPEG with optional EXIF orientation.
     
     Args:

@@ -16,8 +16,6 @@ directories all pass through on every healthy run, so counting them as failures
 would mean no archive ever converted successfully.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 

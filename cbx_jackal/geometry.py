@@ -12,8 +12,6 @@ A genuine spread of ~1.4:1 pages measures about 1.43:1, and a page scanned sidew
 with no orientation tag is indistinguishable from one.
 """
 
-from __future__ import annotations
-
 import struct
 from dataclasses import dataclass
 from typing import NamedTuple

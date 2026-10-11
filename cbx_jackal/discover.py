@@ -40,8 +40,6 @@ same archive would otherwise either duplicate the output line or -- without
 batch to exit 2.
 """
 
-from __future__ import annotations
-
 import glob
 import os
 import sys

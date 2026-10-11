@@ -18,8 +18,6 @@ Recoverability vocabulary from Contract 1.4:
 - `none`: lossy; nothing recovers the page
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from typing import Literal
 

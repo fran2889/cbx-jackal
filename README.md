@@ -212,7 +212,7 @@ cjxl was not found on PATH.
 
 ## Install
 
-Python 3.9 or newer. No Python dependencies at all — container handling is the
+Python 3.14 or newer. No Python dependencies at all — container handling is the
 standard library, with no Python imaging libraries. A CB7, 7Z, or RAR input
 also needs the `7z` command (see [Installing 7z](#installing-7z) above).
 
@@ -382,7 +382,7 @@ python3 -m unittest discover -s tests -v
 ```
 
 Types are checked with [pyright](https://github.com/microsoft/pyright), pinned to
-the declared 3.9 floor in `pyrightconfig.json` rather than whatever interpreter
+the declared 3.14 floor in `pyrightconfig.json` rather than whatever interpreter
 you happen to run:
 
 ```bash

@@ -12,8 +12,6 @@ Run: python3 spike_chain_test.py
 Requires: magick, cjxl, djxl on PATH
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess

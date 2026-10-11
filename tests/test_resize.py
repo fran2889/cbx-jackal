@@ -6,8 +6,6 @@ Tests the downscaling invocation: target dimension calculation, magick
 command construction, and temp file discipline.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import sys

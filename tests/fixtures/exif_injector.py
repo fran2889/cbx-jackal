@@ -23,8 +23,6 @@ Usage:
         f.write(oriented_bytes)
 """
 
-from __future__ import annotations
-
 import struct
 
 # JPEG markers

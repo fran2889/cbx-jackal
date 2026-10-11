@@ -7,8 +7,6 @@ reserved codes for usage and environment problems. Pass-throughs never make a
 healthy run look failed.
 """
 
-from __future__ import annotations
-
 import argparse
 import sys
 

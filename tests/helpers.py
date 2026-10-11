@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Shared fixtures. Stdlib only -- the project keeps zero third-party deps."""
 
-from __future__ import annotations
-
 import calendar
 import glob
 import io

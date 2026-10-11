@@ -21,8 +21,6 @@ form embeds JPEG bitstream reconstruction data, which is why reversibility is
 exclusive to it and why an existing `.jxl` must never be re-encoded.
 """
 
-from __future__ import annotations
-
 import os
 import re
 import subprocess

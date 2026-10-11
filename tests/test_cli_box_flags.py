@@ -8,8 +8,6 @@ Tests the user-facing surface for bounded downscaling:
 - Converter integration
 """
 
-from __future__ import annotations
-
 import os
 import sys
 import unittest

@@ -15,8 +15,6 @@ Fixture dimensions from make_fixtures.py:
 - landscape_splash.jpg: dimensions vary, no EXIF orientation
 """
 
-from __future__ import annotations
-
 import os
 import sys
 import unittest

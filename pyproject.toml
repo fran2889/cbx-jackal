@@ -7,7 +7,7 @@ name = "cbx-jackal"
 version = "0.1.0"
 description = "Transcode CBZ comic pages to JPEG XL losslessly and byte-reversibly."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.14"
 license = { text = "GPL-3.0-only" }
 keywords = ["cbz", "comic", "jpeg-xl", "jxl", "lossless", "transcode"]
 classifiers = [
@@ -15,6 +15,7 @@ classifiers = [
   "Intended Audience :: End Users/Desktop",
   "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Multimedia :: Graphics :: Graphics Conversion",
 ]
 

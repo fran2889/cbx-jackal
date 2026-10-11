@@ -8,8 +8,6 @@ Tests the per-page reporting that Contract 1.4 specifies:
 - Run-level mode line shows downscaling counts
 """
 
-from __future__ import annotations
-
 import os
 import sys
 import unittest

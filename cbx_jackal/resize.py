@@ -21,8 +21,6 @@ Temp file discipline matches encode.run: every temp file is cleaned up on every
 exit path, including when magick fails or is interrupted.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess
