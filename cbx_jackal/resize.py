@@ -47,6 +47,12 @@ TOOL = "magick"
 #: against the PNG route, and `djxl` recovers the intermediate byte-for-byte.
 INTERMEDIATE_FORMAT = ".jpg"
 
+#: Resampling filter for the downscale. Catmull-Rom (`Catrom` in magick's
+#: `-list filter` spelling) keeps comic line art and text crisp with far less
+#: ringing than the Lanczos default on hard black-on-white edges. Pinned
+#: explicitly so output does not drift with ImageMagick defaults.
+RESIZE_FILTER = "Catrom"
+
 #: magick quality for the JPEG intermediate. A visual quality, not the zlib
 #: effort the same flag controls when writing PNG.
 #:
@@ -121,12 +127,18 @@ def _build_command(
     *only* lossy step in a downscaled page, so a caller's `--quality` belongs
     here rather than on the `cjxl` call it would otherwise re-encode with.
     `MAGICK_QUALITY` is the fallback when none was asked for.
+
+    `-filter` is pinned to `RESIZE_FILTER` (Catmull-Rom, magick spelling
+    `Catrom`): comic pages are line art and text, where the Lanczos default
+    rings worst on hard edges and the damage is permanent once `cjxl`
+    preserves it losslessly.
     """
     return [
         magick,
         input_path,
         "-auto-orient",
         "-quality", quality,
+        "-filter", RESIZE_FILTER,
         "-resize", f"{target_width}x{target_height}>",
         f"{INTERMEDIATE_FORMAT[1:]}:{output_path}",  # Remove leading dot
     ]
